@@ -56,6 +56,7 @@ locals {
         type                  = "mcp"
         server_label          = "FoundryIQ"
         server_url            = local.kb_mcp_url
+        allowed_tools         = ["knowledge_base_retrieve"]
         require_approval      = "never"
         project_connection_id = "FoundryIQ"
       }
@@ -75,8 +76,20 @@ locals {
     definition  = local.agent_definition
   })
 
-  # PATCH {endpoint}/agents/{name}?api-version=v1 (A2A プロトコルの有効化)
+  # PATCH {endpoint}/agents/{name}?api-version=v1 (agent card の設定 + A2A プロトコルの有効化)
+  # agent card は A2A クライアントがエージェント発見時に取得するメタデータ (.../a2a/agentCard/v1.0 で公開される)
   agent_patch_payload = jsonencode({
+    agent_card = {
+      version     = "1.0"
+      description = "A knowledge agent specializing in Tartaria (タルタリア) — covering historical records and conspiracy theory claims without AI-generated opinions."
+      skills = [
+        {
+          id          = "tartaria-knowledge"
+          name        = "Tartaria Knowledge Retrieval"
+          description = "Retrieve information about Tartaria from historical records and alternative theory sources"
+        }
+      ]
+    }
     agent_endpoint = {
       protocols = ["a2a", "responses"]
     }
