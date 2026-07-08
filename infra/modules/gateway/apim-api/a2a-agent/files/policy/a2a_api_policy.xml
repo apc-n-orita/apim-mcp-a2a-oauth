@@ -1,0 +1,43 @@
+<!--
+    - Policies are applied in the order they appear.
+    - Position <base/> inside a section to inherit policies from the outer scope.
+    - Comments within policies are not preserved.
+-->
+<!-- Add policies as children to the <inbound>, <outbound>, <backend>, and <on-error> elements -->
+<policies>
+	<!-- Throttle, authorize, validate, cache, or transform the requests -->
+	<inbound>
+		<base />
+		<!-- a2a リクエスト（認証済み）のみ OID ごとにレートリミット
+             製品スコープポリシーで設定済みの変数を使用:
+               isAgentCard : agentcard パスかどうか
+             agentCard は認証なしのため OID が存在しない → 対象外
+        -->
+		<choose>
+			<when condition="@(!(bool)context.Variables["isAgentCard"])">
+				<rate-limit-by-key calls="20" renewal-period="60" counter-key="@("a2a-rl-oid-" + (string)context.Variables["oid"])" />
+			</when>
+		</choose>
+	</inbound>
+	<!-- Control if and how the requests are forwarded to services  -->
+	<backend>
+		<base />
+	</backend>
+	<!-- Customize the responses -->
+	<outbound>
+		<base />
+		<!-- 実際にルーティングされたバックエンドをレスポンスヘッダーに付与 (デバッグ・ログ用) -->
+		<set-header name="X-Routed-Backend" exists-action="override">
+			<value>@{
+        var failover = context.Variables.GetValueOrDefault<string>("failoverBackendId", "");
+        return !string.IsNullOrEmpty(failover)
+          ? failover
+          : context.Variables.GetValueOrDefault<string>("assignedBackendId", "");
+      }</value>
+		</set-header>
+	</outbound>
+	<!-- Handle exceptions and customize error responses  -->
+	<on-error>
+		<base />
+	</on-error>
+</policies>
