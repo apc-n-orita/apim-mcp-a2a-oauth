@@ -48,6 +48,11 @@ output "STORAGE_ACCOUNT_NAME" {
   value       = module.storage.name
 }
 
+output "REDIS_HOSTNAME" {
+  description = "Hostname of the Managed Redis instance used as the APIM external cache (sticky backend assignments)"
+  value       = azurerm_managed_redis.a2a_cache.hostname
+}
+
 output "VERIFY_PROJECT_ENDPOINTS" {
   description = "Endpoints of the verification projects (a2a-caller agent calls tartaria-agent via the APIM A2A endpoint; with-approle passes the APIM policy, without-approle gets 403)"
   value       = { for k, v in azapi_resource.verify_project : k => "https://${module.ai_foundry["0"].name}.services.ai.azure.com/api/projects/${v.name}" }
