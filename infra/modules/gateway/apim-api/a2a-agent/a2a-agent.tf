@@ -106,7 +106,9 @@ resource "azurerm_api_management_api_policy" "a2a_api" {
   api_name            = azapi_resource.a2a_api.name
   api_management_name = var.api_management_name
   resource_group_name = var.resource_group_name
-  xml_content         = file("${path.module}/files/policy/a2a_api_policy.xml")
+  xml_content = templatefile("${path.module}/files/policy/a2a_api_policy.xml", {
+    rate_limit_calls = var.rate_limit_calls
+  })
 }
 
 # --- tartaria-agent API の Application Insights 診断設定 ---

@@ -48,6 +48,12 @@ variable "api_management_logger_id" {
   type = string
 }
 
+variable "rate_limit_calls" {
+  description = "oid ごとのレートリミット回数 (renewal-period 60 秒あたりの許可リクエスト数)"
+  type        = number
+  default     = 20
+}
+
 variable "diagnostic_sampling_percentage" {
   description = "APIM診断のサンプリング率（0.0 〜 100.0）。本番環境では 20.0 〜 50.0 を推奨。"
   type        = number

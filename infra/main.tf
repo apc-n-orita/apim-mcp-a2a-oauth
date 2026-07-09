@@ -4,7 +4,7 @@ locals {
   resource_token = substr(replace(lower(local.sha), "[^A-Za-z0-9_]", ""), 0, 13)
 
   # 新規リソースは APIM と同じリソースグループに作成する
-  resource_group_name = var.apim.resource_group_name
+  resource_group_name = var.resource_group_name
 
   # 固定名
   agent_name   = "tartaria-agent"
@@ -101,18 +101,18 @@ locals {
 # ------------------------------------------------------------------------------------------------------
 
 data "azurerm_api_management" "apim" {
-  name                = var.apim.name
-  resource_group_name = var.apim.resource_group_name
+  name                = var.apim_name
+  resource_group_name = var.resource_group_name
 }
 
 data "azurerm_application_insights" "appi" {
-  name                = var.application_insights.name
-  resource_group_name = var.application_insights.resource_group_name
+  name                = var.application_insights_name
+  resource_group_name = var.resource_group_name
 }
 
 data "azurerm_log_analytics_workspace" "law" {
-  name                = var.log_analytics_workspace.name
-  resource_group_name = var.log_analytics_workspace.resource_group_name
+  name                = var.log_analytics_workspace_name
+  resource_group_name = var.resource_group_name
 }
 
 # ------------------------------------------------------------------------------------------------------
@@ -275,7 +275,8 @@ module "ai_search" {
   tags                          = local.tags
   log_analytics_workspace_id    = data.azurerm_log_analytics_workspace.law.id
   search_service_sku            = "standard" #サンプルpdfが16mbを超えるため、Standardを使用。インデクシング後、ポータルからBasicにダウングレード可能。(terraformの場合、再作成になるため、注意。)
-  semantic_search_sku           = "free"
+  #search_service_sku  = "basic"
+  semantic_search_sku = "free"
 }
 
 module "storage" {
@@ -544,6 +545,14 @@ resource "azuread_application" "a2a_agent" {
   display_name = "a2a-agent-${substr(local.resource_token, 0, 3)}"
   owners       = [data.azuread_client_config.current.object_id]
 
+  required_resource_access {
+    resource_app_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
+    resource_access {
+      id   = "e1fe6dd8-ba31-4d61-89e7-88639da4683d" # User.Read
+      type = "Scope"
+    }
+  }
+
   app_role {
     allowed_member_types = ["User", "Application"]
     description          = "tartaria-agentの実行権限"
@@ -552,7 +561,6 @@ resource "azuread_application" "a2a_agent" {
     id                   = random_uuid.tartaria_agent_role.result
     value                = "tartaria-agent"
   }
-
 
   lifecycle {
     ignore_changes = [
@@ -650,7 +658,7 @@ resource "azurerm_api_management_redis_cache" "a2a_external_cache" {
 module "apim_api_openai" {
   source = "./modules/gateway/apim-api/openai"
 
-  resource_group_name            = var.apim.resource_group_name
+  resource_group_name            = var.resource_group_name
   api_management_name            = data.azurerm_api_management.apim.name
   foundry_backend_names          = [for k, v in module.ai_foundry : v.name]
   foundry_backend_ids            = [for k, v in module.ai_foundry : v.ai_foundry_id]
@@ -665,7 +673,7 @@ module "apim_api_openai" {
 
 module "apim_a2a_agent" {
   source              = "./modules/gateway/apim-api/a2a-agent"
-  resource_group_name = var.apim.resource_group_name
+  resource_group_name = var.resource_group_name
   api_management_name = data.azurerm_api_management.apim.name
   api_management_id   = data.azurerm_api_management.apim.id
 
@@ -679,6 +687,7 @@ module "apim_a2a_agent" {
   application_insights_ingestion_endpoint  = local.appi_ingestion_endpoint
   diagnostic_sampling_percentage           = 100.0
   api_management_logger_id                 = local.apim_logger_id
+  rate_limit_calls                         = var.a2a_rate_limit_calls
 
   # A2A Product ポリシーが external キャッシュ (Redis) を前提とするため
   depends_on = [azurerm_api_management_redis_cache.a2a_external_cache]

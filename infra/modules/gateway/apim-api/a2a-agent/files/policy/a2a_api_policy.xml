@@ -15,7 +15,7 @@
         -->
 		<choose>
 			<when condition="@(!(bool)context.Variables["isAgentCard"])">
-				<rate-limit-by-key calls="20" renewal-period="60" counter-key="@("a2a-rl-oid-" + (string)context.Variables["oid"])" />
+				<rate-limit-by-key calls="${rate_limit_calls}" renewal-period="60" counter-key="@("a2a-rl-oid-" + (string)context.Variables["oid"])" />
 			</when>
 		</choose>
 	</inbound>
