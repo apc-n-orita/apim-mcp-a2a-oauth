@@ -192,7 +192,7 @@ python a2a-agent.py --new
 Ask something about Tartaria:
 
 ```
-You: Tell me about the Tartarian Empire theory.
+You: Tell me about Tartaria.
 Agent: ...answer grounded on the Foundry IQ knowledge base with source references...
 ```
 
@@ -210,7 +210,7 @@ azd env get-value VERIFY_PROJECT_ENDPOINTS
 ```
 
 1. Open the [Microsoft Foundry portal](https://ai.azure.com) and select the project **`verify-with-approle`**.
-2. Open **Agents** → **`a2a-caller`** → playground, and ask a question about Tartaria (e.g., _"Ask the tartaria agent about the Mud Flood theory."_).
+2. Open **Agents** → **`a2a-caller`** → playground, and ask a question about Tartaria (e.g., _"Tell me about Tartaria."_).
    - The A2A tool calls APIM with the **project managed identity**, whose token contains the `tartaria-agent` role → the call passes the APIM policy and the answer comes back.
 3. Repeat the same in the project **`verify-without-approle`**.
    - The project MI has **no** App Role → APIM returns `403 Access denied: role does not match agent 'tartaria-agent'` and the tool call fails.
