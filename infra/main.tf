@@ -94,6 +94,46 @@ locals {
       protocols = ["a2a", "responses"]
     }
   })
+  verify_projects = {
+    "with-approle" = {
+      assign_app_role = true
+    }
+    "without-approle" = {
+      assign_app_role = false
+    }
+  }
+
+  # APIM 経由の tartaria-agent A2A エンドポイント
+  apim_a2a_url = "${data.azurerm_api_management.apim.gateway_url}/a2a/${local.agent_name}"
+
+  verify_agent_name = "a2a-caller"
+
+  # 接続名は Foundry アカウント内 (全プロジェクト横断) で一意である必要があるため、プロジェクトごとに変える
+  verify_conn_names = { for k, v in local.verify_projects : k => "tartaria-agent-a2a-${k}" }
+
+  verify_agent_definitions = { for k, v in local.verify_projects : k => {
+    kind         = "prompt"
+    model        = var.openai_chat.model_name
+    instructions = "You are a coordinator agent. Use the A2A tool to delegate questions about Tartaria (タルタリア) to the tartaria-agent, and return its answer to the user as-is."
+    tools = [
+      {
+        type                  = "a2a_preview"
+        project_connection_id = local.verify_conn_names[k]
+      }
+    ]
+  } }
+
+  verify_agent_create_payloads = { for k, v in local.verify_projects : k => jsonencode({
+    name        = local.verify_agent_name
+    description = "Verification agent that calls tartaria-agent via the APIM A2A endpoint"
+    definition  = local.verify_agent_definitions[k]
+  }) }
+
+  verify_agent_version_payloads = { for k, v in local.verify_projects : k => jsonencode({
+    description = "Verification agent that calls tartaria-agent via the APIM A2A endpoint"
+    definition  = local.verify_agent_definitions[k]
+  }) }
+
 }
 
 # ------------------------------------------------------------------------------------------------------
@@ -691,4 +731,117 @@ module "apim_a2a_agent" {
 
   # A2A Product ポリシーが external キャッシュ (Redis) を前提とするため
   depends_on = [azurerm_api_management_redis_cache.a2a_external_cache]
+}
+
+# ------------------------------------------------------------------------------------------------------
+# 検証用プロジェクト (APIM 経由の A2A 呼び出し検証。ai_foundry["0"] 内に 2 つ作成)
+# - with-approle    : プロジェクトのシステム割り当て MI に tartaria-agent の App Role を割り当て → APIM ポリシーを通過できる
+# - without-approle : App Role 割り当てなし → APIM ポリシーの roles チェックで 403 になることを確認する
+# 両プロジェクトに APIM の A2A エンドポイントへの接続 (tartaria-agent-a2a) と、
+# それを A2A ツールとして使う prompt agent (a2a-caller) を作成する
+# ------------------------------------------------------------------------------------------------------
+
+
+resource "azapi_resource" "verify_project" {
+  for_each                  = local.verify_projects
+  type                      = "Microsoft.CognitiveServices/accounts/projects@2025-06-01"
+  name                      = "verify-${each.key}"
+  parent_id                 = module.ai_foundry["0"].ai_foundry_id
+  location                  = module.ai_foundry["0"].location
+  schema_validation_enabled = false
+  body = {
+    sku = {
+      name = "S0"
+    }
+    identity = {
+      type = "SystemAssigned"
+    }
+    properties = {
+      displayName = "verify-${each.key}"
+      description = "Verification project (${each.key}) for calling tartaria-agent via the APIM A2A endpoint"
+    }
+  }
+  response_export_values = [
+    "identity.principalId"
+  ]
+}
+
+resource "time_sleep" "wait_verify_project_identities" {
+  for_each = azapi_resource.verify_project
+  depends_on = [
+    azapi_resource.verify_project
+  ]
+  create_duration = "10s"
+}
+
+# with-approle のプロジェクト MI にのみ tartaria-agent の App Role を割り当て
+resource "azuread_app_role_assignment" "verify_project_tartaria_role" {
+  for_each            = { for k, v in local.verify_projects : k => v if v.assign_app_role }
+  principal_object_id = azapi_resource.verify_project[each.key].output.identity.principalId
+  app_role_id         = azuread_service_principal.a2a_agent_sp.app_role_ids["tartaria-agent"]
+  resource_object_id  = azuread_service_principal.a2a_agent_sp.object_id
+  depends_on          = [time_sleep.wait_verify_project_identities]
+}
+
+# APIM の A2A エンドポイントへの接続
+resource "azapi_resource" "conn_tartaria_a2a" {
+  for_each                  = azapi_resource.verify_project
+  type                      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
+  name                      = local.verify_conn_names[each.key]
+  parent_id                 = each.value.id
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      audience      = "api://${azuread_application.a2a_agent.client_id}/.default"
+      authType      = "ProjectManagedIdentity"
+      category      = "RemoteA2A"
+      group         = "AzureAI"
+      isDefault     = false
+      isSharedToAll = false
+      metadata = {
+        AgentCardPath = "${local.apim_a2a_url}/agent-card.json"
+        type          = "custom_A2A"
+      }
+      target                      = local.apim_a2a_url
+      useWorkspaceManagedIdentity = false
+    }
+  }
+}
+
+# デプロイ実行ユーザーが検証用プロジェクトでエージェントを作成・実行できるようにする
+resource "azurerm_role_assignment" "current_user_verify_project_foundry_user" {
+  for_each             = azapi_resource.verify_project
+  scope                = each.value.id
+  role_definition_name = "Foundry User"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+# 呼び出し側 prompt agent (a2a-caller)。A2A 公開は不要のため AGENT_PATCH_PAYLOAD は空でスキップ
+resource "null_resource" "deploy_verify_agent" {
+  for_each = azapi_resource.verify_project
+  triggers = {
+    endpoint        = "https://${module.ai_foundry["0"].name}.services.ai.azure.com/api/projects/${each.value.name}"
+    agent_name      = local.verify_agent_name
+    create_payload  = local.verify_agent_create_payloads[each.key]
+    version_payload = local.verify_agent_version_payloads[each.key]
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = "bash ${path.module}/scripts/deploy_prompt_agent.sh '${self.triggers.endpoint}' '${self.triggers.agent_name}'"
+    environment = {
+      AGENT_CREATE_PAYLOAD  = self.triggers.create_payload
+      AGENT_VERSION_PAYLOAD = self.triggers.version_payload
+      AGENT_PATCH_PAYLOAD   = ""
+    }
+  }
+
+  depends_on = [
+    azapi_resource.conn_tartaria_a2a,
+    azurerm_role_assignment.current_user_verify_project_foundry_user,
+    azuread_app_role_assignment.verify_project_tartaria_role,
+    module.apim_a2a_agent,
+    null_resource.deploy_prompt_agent,
+  ]
 }

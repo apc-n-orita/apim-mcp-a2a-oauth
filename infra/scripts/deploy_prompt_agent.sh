@@ -17,7 +17,9 @@
 # Required environment variables:
 #   AGENT_CREATE_PAYLOAD  : JSON body for POST  {endpoint}/agents                 (name + description + definition)
 #   AGENT_VERSION_PAYLOAD : JSON body for POST  {endpoint}/agents/{name}/versions (description + definition)
+# Optional environment variables:
 #   AGENT_PATCH_PAYLOAD   : JSON body for PATCH {endpoint}/agents/{name}          (agent_card + agent_endpoint.protocols)
+#                           空または未設定の場合は PATCH をスキップする (A2A 公開が不要なエージェント向け)
 # ---------------------------------------------
 set -euo pipefail
 
@@ -33,7 +35,7 @@ api_version="v1"
 
 : "${AGENT_CREATE_PAYLOAD:?AGENT_CREATE_PAYLOAD is required}"
 : "${AGENT_VERSION_PAYLOAD:?AGENT_VERSION_PAYLOAD is required}"
-: "${AGENT_PATCH_PAYLOAD:?AGENT_PATCH_PAYLOAD is required}"
+: "${AGENT_PATCH_PAYLOAD:=}"
 
 # 並列実行 (terraform の for_each) でも競合しないよう、一時ファイルは mktemp で作成する
 work_dir=$(mktemp -d)
@@ -102,10 +104,14 @@ case "$status" in
     ;;
 esac
 
-# 2) agent card の設定 + A2A プロトコルの有効化 (merge-patch)
-echo "Configuring agent card and enabling A2A protocol on agent '${agent_name}'..."
-request PATCH "${endpoint}/agents/${agent_name}?api-version=${api_version}" "application/merge-patch+json" "$AGENT_PATCH_PAYLOAD" "${work_dir}/agent_patch_resp.json"
-handle_result "agent card / A2A enablement" "${work_dir}/agent_patch_resp.json"
+# 2) agent card の設定 + A2A プロトコルの有効化 (merge-patch)。ペイロードが空の場合はスキップ
+if [ -n "$AGENT_PATCH_PAYLOAD" ]; then
+  echo "Configuring agent card and enabling A2A protocol on agent '${agent_name}'..."
+  request PATCH "${endpoint}/agents/${agent_name}?api-version=${api_version}" "application/merge-patch+json" "$AGENT_PATCH_PAYLOAD" "${work_dir}/agent_patch_resp.json"
+  handle_result "agent card / A2A enablement" "${work_dir}/agent_patch_resp.json"
+  echo "A2A base path: ${endpoint}/agents/${agent_name}/endpoint/protocols/a2a"
+else
+  echo "AGENT_PATCH_PAYLOAD is empty. Skipping agent card / A2A enablement."
+fi
 
 echo "All agent provisioning steps completed successfully."
-echo "A2A base path: ${endpoint}/agents/${agent_name}/endpoint/protocols/a2a"

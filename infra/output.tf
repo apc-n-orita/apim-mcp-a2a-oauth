@@ -47,3 +47,8 @@ output "STORAGE_ACCOUNT_NAME" {
   description = "Name of the storage account holding the knowledge documents"
   value       = module.storage.name
 }
+
+output "VERIFY_PROJECT_ENDPOINTS" {
+  description = "Endpoints of the verification projects (a2a-caller agent calls tartaria-agent via the APIM A2A endpoint; with-approle passes the APIM policy, without-approle gets 403)"
+  value       = { for k, v in azapi_resource.verify_project : k => "https://${module.ai_foundry["0"].name}.services.ai.azure.com/api/projects/${v.name}" }
+}
