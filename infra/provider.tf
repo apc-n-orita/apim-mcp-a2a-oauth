@@ -3,7 +3,7 @@ terraform {
   required_version = ">= 1.1.7, < 2.0.0"
   required_providers {
     azurerm = {
-      version = "~>4.42.0"
+      version = "~>4.80.0"
       source  = "hashicorp/azurerm"
     }
     azurecaf = {
@@ -18,7 +18,14 @@ terraform {
       source  = "Azure/azapi"
       version = "~>2.0.0"
     }
-
+    null = {
+      source  = "hashicorp/null"
+      version = "~>3.2.0"
+    }
+    time = {
+      source  = "hashicorp/time"
+      version = "~>0.13.0"
+    }
   }
 }
 
@@ -28,9 +35,6 @@ provider "azurerm" {
   subscription_id                 = var.subscription_id
   storage_use_azuread             = true
   features {
-    key_vault {
-      purge_soft_delete_on_destroy = true
-    }
     resource_group {
       prevent_deletion_if_contains_resources = false
     }
@@ -39,6 +43,7 @@ provider "azurerm" {
 
 provider "azuread" {
 }
+
 # Access client_id, tenant_id, subscription_id and object_id configuration values
 data "azurerm_client_config" "current" {}
 

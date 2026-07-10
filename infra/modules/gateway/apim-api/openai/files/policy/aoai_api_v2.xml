@@ -1,0 +1,57 @@
+    <policies>
+        <inbound>
+            <validate-azure-ad-token tenant-id="{{EntraIDTenantId}}" output-token-variable-name="jwt" header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. Access token is missing or invalid.">
+                <audiences>
+                    <audience>https://cognitiveservices.azure.com/</audience>
+                </audiences>
+            </validate-azure-ad-token>
+            <set-variable name="allowedClientIds" value="{{AIS-MI-CLIENT-ID}}" />
+            <set-variable name="allowedGroupIds" value="" />
+            <set-variable name="currentAppId" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("appid", ""))" />
+            <choose>
+                <when condition="@{
+                    var jwt = (Jwt)context.Variables["jwt"];
+                    string currentAppId = (string)context.Variables["currentAppId"];
+                    
+                    // 許可リストのパース
+                    var allowedClients = context.Variables.GetValueOrDefault<string>("allowedClientIds", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+                    var allowedGroups = context.Variables.GetValueOrDefault<string>("allowedGroupIds", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+
+                    // クライアントIDのチェック
+                    bool isClientMatch = allowedClients.Contains(currentAppId);
+
+                    // グループIDのチェック (groupsクレームが存在しない場合も考慮)
+                    var userGroupsRaw = jwt.Claims.GetValueOrDefault("groups", "");
+                    var userGroups = userGroupsRaw.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+                    bool isGroupMatch = userGroups.Any(g => allowedGroups.Contains(g));
+
+                    return !(isClientMatch || isGroupMatch);
+                }">
+                    <return-response>
+                        <set-status code="401" reason="Unauthorized" />
+                        <set-body>@{
+                            return $"Access denied. Required permissions not met.";
+                        }</set-body>
+                    </return-response>
+                </when>
+            </choose>
+            <!-- 既定ではエラーで折り返す -->
+            <return-response>
+                <set-body>{
+                    "error": {
+                        "code": "OperationNotSupported",
+                        "message": "Your request operation is not supported"
+                    }
+                }</set-body>
+            </return-response>
+        </inbound>
+        <backend>
+            <base />
+        </backend>
+        <outbound>
+            <base />
+        </outbound>
+        <on-error>
+            <base />
+        </on-error>
+    </policies>

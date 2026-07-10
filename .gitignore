@@ -35,3 +35,14 @@ override.tf.json
 .terraformrc
 terraform.rc
 .azure
+.venv
+*.pdf
+*.pptx
+settings.local.json
+*.log
+__pycache__/
+__azurite*
+__blobstorage__*
+Azurite*
+settings.json
+.a2a_context

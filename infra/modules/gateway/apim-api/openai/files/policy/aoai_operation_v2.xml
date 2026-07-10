@@ -1,0 +1,78 @@
+<policies>
+    <inbound>
+        <validate-azure-ad-token tenant-id="{{EntraIDTenantId}}" output-token-variable-name="jwt" header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. Access token is missing or invalid.">
+            <audiences>
+                <audience>https://cognitiveservices.azure.com/</audience>
+            </audiences>
+        </validate-azure-ad-token>
+        <set-variable name="allowedClientIds" value="{{AIS-MI-CLIENT-ID}}" />
+        <set-variable name="allowedGroupIds" value="" />
+        <set-variable name="currentAppId" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("appid", ""))" />
+        <set-variable name="deploymentId" value="@{
+            var path = context.Request.Url.Path;
+            var match = Regex.Match(path, @"/deployments/([^/]+)/");
+            return match.Success ? match.Groups[1].Value : "unknown";
+        }" />
+        <choose>
+            <when condition="@{
+                var jwt = (Jwt)context.Variables["jwt"];
+                string currentAppId = (string)context.Variables["currentAppId"];
+                
+                // 許可リストのパース
+                var allowedClients = context.Variables.GetValueOrDefault<string>("allowedClientIds", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+                var allowedGroups = context.Variables.GetValueOrDefault<string>("allowedGroupIds", "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+
+                // クライアントIDのチェック
+                bool isClientMatch = allowedClients.Contains(currentAppId);
+
+                // グループIDのチェック (groupsクレームが存在しない場合も考慮)
+                var userGroupsRaw = jwt.Claims.GetValueOrDefault("groups", "");
+                var userGroups = userGroupsRaw.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+                bool isGroupMatch = userGroups.Any(g => allowedGroups.Contains(g));
+
+                return !(isClientMatch || isGroupMatch);
+            }">
+                <return-response>
+                    <set-status code="401" reason="Unauthorized" />
+                    <set-body>@{
+                        return $"Access denied. Required permissions not met.";
+                    }</set-body>
+                </return-response>
+            </when>
+        </choose>
+        <set-backend-service id="apim-generated-policy" backend-id="{{OpenAIBackendPool}}" />
+        
+        <!-- Apply token limit ONLY when currentAppId is NOT AIS-MI-CLIENT-ID -->
+        <choose>
+            <when condition="@{
+                string currentAppId = (string)context.Variables["currentAppId"];
+                string aisClientId = "{{AIS-MI-CLIENT-ID}}";
+                return currentAppId != aisClientId;
+            }">
+                <llm-token-limit counter-key="@((string)context.Variables["deploymentId"])" tokens-per-minute="${TokenLimit}" estimate-prompt-tokens="false" remaining-tokens-variable-name="remainingTokens" />
+            </when>
+        </choose>
+        
+        <llm-emit-token-metric namespace="aif-aisearch">
+            <dimension name="Operation ID" />
+            <dimension name="Client ID" value="@((string)context.Variables["currentAppId"])" />
+            <dimension name="Access Type" value="@{
+                var allowedClients = context.Variables.GetValueOrDefault<string>("allowedClientIds", "").Split(',').Select(s => s.Trim());
+                return allowedClients.Contains((string)context.Variables["currentAppId"]) ? "ManagedIdentity" : "UserContext";
+            }" />
+            <dimension name="Source IP" value="@{
+                var allowedClients = context.Variables.GetValueOrDefault<string>("allowedClientIds", "").Split(',').Select(s => s.Trim());
+                return allowedClients.Contains((string)context.Variables["currentAppId"]) ? "Internal" : context.Request.IpAddress;
+            }" />
+        </llm-emit-token-metric>
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

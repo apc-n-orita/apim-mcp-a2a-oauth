@@ -1,0 +1,275 @@
+<policies>
+	<inbound>
+		<base />
+		<!-- agentcard パスかどうかを判定 -->
+		<set-variable name="isAgentCard" value="@(context.Request.Url.Path.ToLower().Contains("agentcard"))" />
+		<!-- URL パスの /agents/{agentName}/ からエージェント名を抽出（agentcard・a2a 共通） -->
+		<set-variable name="agentName" value="@{
+      var match = Regex.Match(context.Request.Url.Path, @"/agents/([^/]+)/");
+      return match.Success ? match.Groups[1].Value : string.Empty;
+    }" />
+		<!--
+      agentcard 以外: Entra ID トークン検証 + ロール認可
+      Named Values:
+        {{EntraIDTenantId}}  : Entra ID テナント ID
+        {{a2a-oauth-app-id}} : バックエンドアプリの App ID
+    -->
+		<choose>
+			<when condition="@(!(bool)context.Variables["isAgentCard"])">
+				<validate-azure-ad-token tenant-id="{{EntraIDTenantId}}" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized">
+					<audiences>
+						<audience>api://{{a2a-oauth-app-id}}/</audience>
+					</audiences>
+				</validate-azure-ad-token>
+				<!-- roles クレームを Application Insights へ送信 -->
+				<!--
+                <trace source="a2a-auth" severity="information">
+                    <message>@{
+                        var jwt = (Jwt)context.Variables["jwt"];
+                        var oid = jwt.Claims.GetValueOrDefault("oid", "(no oid)");
+                        var roles = jwt.Claims.ContainsKey("roles")
+                            ? string.Join(",", jwt.Claims["roles"])
+                            : "(no roles)";
+                        return $"oid={oid} roles={roles}";
+                    }</message>
+                    <metadata name="agent" value="@(context.Variables.GetValueOrDefault<string>("agentName", ""))" />
+                </trace>
+                -->
+				<!-- エージェント名とロールの一致チェック（完全一致 or ワイルドカード部分一致） -->
+				<set-variable name="isAuthorized" value="@{
+          var jwt = (Jwt)context.Variables["jwt"];
+          if (jwt == null || !jwt.Claims.ContainsKey("roles")) { return false; }
+          var agentName = (string)context.Variables["agentName"];
+          if (string.IsNullOrEmpty(agentName)) { return false; }
+          return jwt.Claims["roles"].Any(role =>
+            role.Equals(agentName, StringComparison.OrdinalIgnoreCase) ||
+            (role.EndsWith("*") && agentName.StartsWith(role.Substring(0, role.Length - 1), StringComparison.OrdinalIgnoreCase))
+          );
+        }" />
+				<choose>
+					<when condition="@((bool)context.Variables["isAuthorized"])">
+						<!-- 許可: そのまま通過 -->
+					</when>
+					<otherwise>
+						<return-response>
+							<set-status code="403" reason="Forbidden" />
+							<set-header name="Content-Type" exists-action="override">
+								<value>application/json</value>
+							</set-header>
+							<set-body>@("{\"error\":\"Access denied: role does not match agent '" + (string)context.Variables["agentName"] + "'\"}")</set-body>
+						</return-response>
+					</otherwise>
+				</choose>
+			</when>
+		</choose>
+		<!--
+      ロードバランシング: assignedBackendId (AI Foundry アカウント名) を決定
+      Named Values:
+        {{a2a-backends}}: カンマ区切りの AI Foundry アカウント名一覧（1件でも動作）
+        例: "ai-account-j2pwizoyug22m" または "ai-account-j2pwizoyug22m,ai-account-keuy"
+
+      agentcard: 認証なしのため oid が取れない → クライアント IP ハッシュで振り分け
+      a2a     : oid → Redis キャッシュ → スティッキーバックエンド決定
+    -->
+		<choose>
+			<when condition="@((bool)context.Variables["isAgentCard"])">
+				<!-- agentcard: リクエストIDでハッシュ振り分け（均一ランダム分散） -->
+				<set-variable name="assignedBackendId" value="@{
+          var reqid = context.RequestId.ToString();
+          var backends = "{{a2a-backends}}"
+            .Split(',')
+            .Select(s => s.Trim())
+            .Where(s => !string.IsNullOrEmpty(s))
+            .ToArray();
+          byte[] hashBytes;
+          using (var md5 = System.Security.Cryptography.MD5.Create()) {
+            hashBytes = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(reqid));
+          }
+          int idx = (BitConverter.ToInt32(hashBytes, 0) & 0x7fffffff) % backends.Length;
+          return backends[idx];
+        }" />
+			</when>
+			<otherwise>
+				<!-- a2a: oid → Redis → スティッキーバックエンド決定 -->
+				<set-variable name="oid" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("oid", ""))" />
+				<cache-lookup-value key="@("a2a-backend-oid-" + (string)context.Variables["oid"])" variable-name="assignedBackendId" default-value="" caching-type="external" />
+				<choose>
+					<when condition="@(string.IsNullOrEmpty((string)context.Variables["assignedBackendId"]))">
+						<set-variable name="assignedBackendId" value="@{
+              var id = (string)context.Variables["oid"];
+              var backends = "{{a2a-backends}}"
+                .Split(',')
+                .Select(s => s.Trim())
+                .Where(s => !string.IsNullOrEmpty(s))
+                .ToArray();
+              byte[] hashBytes;
+              using (var md5 = System.Security.Cryptography.MD5.Create()) {
+                hashBytes = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(id));
+              }
+              int idx = (BitConverter.ToInt32(hashBytes, 0) & 0x7fffffff) % backends.Length;
+              return backends[idx];
+            }" />
+						<cache-store-value key="@("a2a-backend-oid-" + (string)context.Variables["oid"])" value="@((string)context.Variables["assignedBackendId"])" duration="86400" caching-type="external" />
+					</when>
+				</choose>
+			</otherwise>
+		</choose>
+		<!-- MSI 認証 -->
+		<authentication-managed-identity resource="https://ai.azure.com/" output-token-variable-name="msi-access-token" ignore-error="false" />
+		<set-header name="Authorization" exists-action="override">
+			<value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
+		</set-header>
+		<!--
+      バックエンド URL を変数に設定
+      agentcard: .../protocols/a2a/agentCard/v0.3
+      a2a      : .../protocols/a2a
+      Named Values:
+        {{ai-foundry-project}}: AI Foundry プロジェクト名
+    -->
+		<set-variable name="backendUrl" value="@{
+      var id = (string)context.Variables["assignedBackendId"];
+      var agentName = (string)context.Variables["agentName"];
+      var baseUrl = "https://" + id + ".services.ai.azure.com/api/projects/{{ai-foundry-project}}/agents/" + agentName + "/endpoint/protocols/a2a";
+      return (bool)context.Variables["isAgentCard"] ? baseUrl + "/agentCard/v0.3" : baseUrl;
+    }" />
+		<set-backend-service base-url="@((string)context.Variables["backendUrl"])" />
+		<!--
+      App Insights exceptions テーブルへ JSON-RPC エラーを送信するための MSI トークンを事前取得
+      (authentication-managed-identity は inbound のみ許可)
+      前提条件:
+        - APIM のシステム割り当てマネージド ID に App Insights リソースの
+          "Monitoring Metrics Publisher" ロールを付与すること
+        - Named Values:
+            {{app-insights-ingestion-endpoint}} : IngestionEndpoint (末尾スラッシュなし)
+              例: https://eastasia-0.in.applicationinsights.azure.com
+            {{app-insights-ikey}} : App Insights インストルメンテーションキー
+    -->
+		<authentication-managed-identity resource="https://monitor.azure.com" output-token-variable-name="appi-token" ignore-error="true" />
+	</inbound>
+	<backend>
+		<!--
+      5xx / 429 / JSON-RPC エラー発生時のリトライ＋フェイルオーバー戦略
+      試行 1〜4: 割り当て済みバックエンドでリトライ
+      試行 5   : 別バックエンドへフェイルオーバー
+                 Redis: 試行 5 で常に failover 先へ更新（agentcard を除く）
+    -->
+		<retry condition="@(context.Response == null || context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && context.Response.StatusCode <= 599) || !string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("jsonRpcErrorMsg", "")))" count="4" interval="2" first-fast-retry="false">
+			<set-variable name="attempt-count" value="@(context.Variables.GetValueOrDefault<int>("attempt-count", 0) + 1)" />
+			<!-- フェイルオーバー判定用に直前のレスポンスコードを保存 -->
+			<set-variable name="lastResponseCode" value="@(context.Response != null ? context.Response.StatusCode : 0)" />
+			<choose>
+				<!-- 試行 1〜4: 割り当て済みバックエンドを使用 -->
+				<when condition="@(context.Variables.GetValueOrDefault<int>("attempt-count") <= 4)">
+					<set-backend-service base-url="@((string)context.Variables["backendUrl"])" />
+				</when>
+				<!-- 試行 5: リトライ全失敗 → 別バックエンドへフェイルオーバー -->
+				<otherwise>
+					<set-variable name="failoverBackendId" value="@{
+            var current = (string)context.Variables["assignedBackendId"];
+            var backends = "{{a2a-backends}}"
+              .Split(',')
+              .Select(s => s.Trim())
+              .Where(s => !string.IsNullOrEmpty(s) && s != current)
+              .ToArray();
+            if (backends.Length == 0) { return current; }
+            byte[] hashBytes;
+            using (var md5 = System.Security.Cryptography.MD5.Create()) {
+              hashBytes = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(current + "-failover"));
+            }
+            int idx = (BitConverter.ToInt32(hashBytes, 0) & 0x7fffffff) % backends.Length;
+            return backends[idx];
+          }" />
+					<!-- a2a の場合は常に Redis を更新 -->
+					<choose>
+						<when condition="@(!(bool)context.Variables["isAgentCard"])">
+							<cache-store-value key="@("a2a-backend-oid-" + (string)context.Variables["oid"])" value="@((string)context.Variables["failoverBackendId"])" duration="86400" caching-type="external" />
+						</when>
+					</choose>
+					<!-- backendUrl をフェイルオーバー先で更新してバックエンドを切り替え -->
+					<set-variable name="backendUrl" value="@{
+            var id = (string)context.Variables["failoverBackendId"];
+            var agentName = (string)context.Variables["agentName"];
+            var baseUrl = "https://" + id + ".services.ai.azure.com/api/projects/{{ai-foundry-project}}/agents/" + agentName + "/endpoint/protocols/a2a";
+            return (bool)context.Variables["isAgentCard"] ? baseUrl + "/agentCard/v0.3" : baseUrl;
+          }" />
+					<set-backend-service base-url="@((string)context.Variables["backendUrl"])" />
+				</otherwise>
+			</choose>
+			<forward-request buffer-request-body="true" />
+			<!-- JSON-RPC エラー検知: HTTP 200 でもボディに {"error":{"code":...,"message":...}} がある場合を検出
+                 preserveContent: true でボディを保持し 2 回目以降の読み取りを可能にする
+                 エラーなし → 空文字 → retry condition が false になりループ終了 -->
+			<set-variable name="jsonRpcErrorCode" value="@{
+                try {
+                    var body = context.Response.Body.As<JObject>(preserveContent: true);
+                    return body?.SelectToken("error.code")?.ToString() ?? "";
+                } catch {
+                    return "";
+                }
+            }" />
+			<set-variable name="jsonRpcErrorMsg" value="@{
+                try {
+                    var body = context.Response.Body.As<JObject>(preserveContent: true);
+                    return body?.SelectToken("error.message")?.ToString() ?? "";
+                } catch {
+                    return "";
+                }
+            }" />
+			<!-- JSON-RPC エラーを App Insights exceptions テーブルへ送信 (v2.1/track Entra ID 認証) -->
+			<choose>
+				<when condition="@(!string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("jsonRpcErrorMsg", "")))">
+					<send-one-way-request>
+						<set-url>{{app-insights-ingestion-endpoint}}/v2.1/track</set-url>
+						<set-method>POST</set-method>
+						<set-header name="Authorization" exists-action="override">
+							<value>@("Bearer " + context.Variables.GetValueOrDefault<string>("appi-token", ""))</value>
+						</set-header>
+						<set-header name="Content-Type" exists-action="override">
+							<value>application/json</value>
+						</set-header>
+						<set-body>@{
+                            var errorCode = context.Variables.GetValueOrDefault<string>("jsonRpcErrorCode", "");
+                            var errorMsg = context.Variables.GetValueOrDefault<string>("jsonRpcErrorMsg", "");
+                            var agentName = context.Variables.GetValueOrDefault<string>("agentName", "");
+                            var backendUrl = context.Variables.GetValueOrDefault<string>("backendUrl", "");
+                            var attempt = context.Variables.GetValueOrDefault<int>("attempt-count");
+                            var payload = new JArray(new JObject(
+                                new JProperty("name", "Microsoft.ApplicationInsights.Exception"),
+                                new JProperty("time", context.Timestamp.ToString("o")),
+                                new JProperty("iKey", "{{app-insights-ikey}}"),
+                                new JProperty("data", new JObject(
+                                    new JProperty("baseType", "ExceptionData"),
+                                    new JProperty("baseData", new JObject(
+                                        new JProperty("ver", 2),
+                                        new JProperty("exceptions", new JArray(new JObject(
+                                            new JProperty("id", 1),
+                                            new JProperty("typeName", "JsonRpcError"),
+                                            new JProperty("message", errorMsg),
+                                            new JProperty("hasFullStack", false),
+                                            new JProperty("parsedStack", new JArray())
+                                        ))),
+                                        new JProperty("severityLevel", 3),
+                                        new JProperty("properties", new JObject(
+                                            new JProperty("agentName", agentName),
+                                            new JProperty("backend", backendUrl),
+                                            new JProperty("attempt", attempt.ToString()),
+                                            new JProperty("errorCode", errorCode),
+                                            new JProperty("errorMessage", errorMsg)
+                                        ))
+                                    ))
+                                ))
+                            ));
+                            return payload.ToString();
+                        }</set-body>
+					</send-one-way-request>
+				</when>
+			</choose>
+		</retry>
+	</backend>
+	<outbound>
+		<base />
+	</outbound>
+	<on-error>
+		<base />
+	</on-error>
+</policies>
