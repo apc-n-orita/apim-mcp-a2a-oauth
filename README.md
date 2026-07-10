@@ -11,7 +11,7 @@ This hands-on lab demonstrates the end-to-end flow for securely calling an A2A a
 - **Local A2A client (`a2a-agent.py`) → APIM → Foundry prompt agent (tartaria-agent)**
 - **Foundry agent (`a2a-caller`) → APIM → Foundry prompt agent (tartaria-agent)** — agent-to-agent via the A2A tool
 
-In both patterns, APIM enforces the same product policy: Entra ID token validation, **App Role–based authorization (`roles` claim must match the agent name)**, per-caller sticky load balancing across Foundry backends (Redis external cache), retry/failover, and JSON-RPC error telemetry to Application Insights.
+In both patterns, APIM enforces the same product policy: Entra ID token validation, **App Role–based authorization** (`roles` claim must match the agent name), per-caller sticky load balancing across Foundry backends (Redis external cache), retry/failover, and JSON-RPC error telemetry to Application Insights. For technical details, see [Technical Details](tech_use.md).
 
 ### Pattern 1: Local A2A client → APIM → tartaria-agent
 
@@ -80,11 +80,11 @@ sequenceDiagram
 
 ## Architecture Features
 
-1. **OAuth2 / Entra ID authorization** — callers (users or managed identities) acquire tokens for the `a2a-agent` application.
+1. **OAuth2 / Entra ID authorization** — callers (users or managed identities) acquire tokens for the `a2a-agent` application. See [OAuth Authorization](tech_use.md#oauth-authorization-validate-azure-ad-token--role-based-access) in Technical Details.
 2. **App Role–based authorization** — the APIM product policy matches the token `roles` claim against the agent name in the URL (exact or wildcard `prefix-*`).
-3. **Sticky load balancing with failover** — per-caller (`oid`) backend assignment persisted in Managed Redis for 24 h; on repeated failures (5xx / 429 / JSON-RPC errors) traffic fails over to another Foundry backend and the sticky assignment is rewritten.
+3. **Sticky load balancing with failover** — per-caller (`oid`) backend assignment persisted in Managed Redis for 24 h; on repeated failures (5xx / 429 / JSON-RPC errors) traffic fails over to another Foundry backend and the sticky assignment is rewritten. See [Load Balancing (with Redis)](tech_use.md#load-balancing-with-redis).
 4. **Secretless connections** — APIM reaches Foundry with its system-assigned managed identity; the Foundry project reaches the knowledge base and OpenAI models (via APIM) with project/search managed identities.
-5. **Observability** — API diagnostics to Application Insights, plus JSON-RPC errors (which arrive as HTTP 200) pushed to the App Insights `exceptions` table by the policy itself.
+5. **Observability** — API diagnostics to Application Insights, plus JSON-RPC errors (which arrive as HTTP 200) pushed to the App Insights `exceptions` table by the policy itself. See [JSON-RPC Error Telemetry](tech_use.md#json-rpc-error-telemetry-to-application-insights).
 
 ## Deploy Hands-On Environment
 
@@ -251,7 +251,7 @@ Each key corresponds to one caller (`oid` of a user or a managed identity), and 
 
 ### 4. Verify failover
 
-The retry/failover condition of the APIM product policy is *no response / 429 / 5xx / JSON-RPC error*. The easiest way to trigger it — and to recover afterwards — is to **delete the chat model deployment on the assigned backend**: the A2A endpoint itself stays reachable (HTTP 200), but the agent run fails on the server side and comes back as a **JSON-RPC error in the response body**, which is exactly the failure pattern this policy is designed to catch.
+The retry/failover condition of the APIM product policy is _no response / 429 / 5xx / JSON-RPC error_. The easiest way to trigger it — and to recover afterwards — is to **delete the chat model deployment on the assigned backend**: the A2A endpoint itself stays reachable (HTTP 200), but the agent run fails on the server side and comes back as a **JSON-RPC error in the response body**, which is exactly the failure pattern this policy is designed to catch.
 
 > This requires two or more Foundry backends (`ai_locations` with 2+ entries).
 
@@ -286,3 +286,40 @@ What to observe:
 - **Only the first request after the deletion is slow** (retries + failover). Subsequent requests are fast because the Redis assignment already points at the failover target — this is the sticky-rewrite behavior in action.
 - With `MONITOR` running in another terminal, you can see the `SET a2a-backend-oid-...` command issued at the moment of failover.
 - The JSON-RPC errors are recorded in the Application Insights `exceptions` table as `JsonRpcError` (with `agentName` / `backend` / `attempt` properties).
+
+## On Balance: Security and Developer Enablement as Separate Layers
+
+This hands-on demonstrates a powerful architectural principle often misunderstood in practice: **security and developer experience are not opposing forces that demand compromise—they are distinct layers that can each operate at full capacity simultaneously.**
+
+### The Myth of Trade-off
+
+Many organizations approach security and developer experience as a zero-sum game. The result is a middle ground where both suffer:
+
+- Security teams demand strict controls that slow development.
+- Developers circumvent controls to maintain velocity.
+- Neither team is satisfied, and the actual safety posture becomes ambiguous.
+
+### The Principle of Layers
+
+This architecture separates **authorization** and **resilience** into distinct operational layers:
+
+1. **Authorization Layer (Security at 100%)**: The APIM policy enforces OAuth token validation and **App Role–based authorization**—a hard boundary. If your `roles` claim does not match the target agent name, you receive a `403 Forbidden` response. No compromise, no flexibility. This layer answers the question: _"Are you authorized?"_ The answer is binary: yes or no. (See [OAuth Authorization](tech_use.md#oauth-authorization-validate-azure-ad-token--role-based-access) for implementation details.)
+
+2. **Resilience Layer (Developer Experience at 100%)**: Once you have proven you belong, the system assumes success will happen—and **sticky load balancing with automatic failover** ensures you get a working backend with minimal latency. Requests route consistently to the same Foundry account for 24 hours; if that account fails, traffic transparently shifts to another, with Redis managing the state. The developer calling the agent never sees an outage; they experience a seamless, predictable response. (See [Sticky Load Balancing](tech_use.md#load-balancing-with-redis) and [Retry and Failover](tech_use.md#load-balancing-with-redis) for implementation details.)
+
+These two layers do not compete for priority. Authorization answers _who_ can do what. Resilience answers _how the system behaves when that authorized person acts_. Both operate at full force, without compromise.
+
+### How the Layers Work in This Lab
+
+- **Security layer asks**: "Does your `roles` claim contain the agent name?" This is evaluated before any backend selection occurs—authorization is the outermost gate.
+- **Resilience layer asks**: "Which backend should this caller use, and what happens if it becomes unavailable?" Redis sticky routing and APIM failover handle these concerns transparently, without requiring the caller to retry or change their code.
+
+### The Spirit Behind This Design
+
+This is not merely a technical pattern. It reflects a deeper principle: **protection and freedom are not opposed**. In the same way that a well-designed firewall does not slow legitimate traffic but rather clarifies boundaries, this architecture makes the rules clear—and then steps out of the way.
+
+Security is not "a restriction on developers and users"—it is "a safety mechanism to prevent misuse." Once that mechanism is in place and understood, the developer's experience becomes smooth, fast, and predictable. The two goals do not balance through negotiation; they integrate through clarity.
+
+When you design systems this way—layering concerns so each can be decisive and complete—you enable teams to move with confidence. Architects can enforce hard boundaries without apology. Developers can build fast without circumventing controls. Both sides win not through compromise, but through **structural clarity about which layer owns which decision**.
+
+That is the architecture you see here—and it is both secure and enabling.
