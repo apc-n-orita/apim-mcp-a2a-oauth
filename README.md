@@ -171,11 +171,11 @@ pip install a2a-sdk azure-identity httpx requests
 
 **1-2. Check your token has the `tartaria-agent` App Role**
 
-The deploying user is assigned the `tartaria-agent` App Role by the IaC. Run `check.entraid_token.py` and verify that `tartaria-agent` is included in the `roles` claim.
+The deploying user is assigned the `tartaria-agent` App Role by the IaC. Run `samplecodes/check.entraid_token.py` and verify that `tartaria-agent` is included in the `roles` claim.
 
 ```bash
 export OAUTH_APP_ID="$(azd env get-value A2A_OAUTH_APP_CLIENT_ID)"
-python check.entraid_token.py | grep -v '^===' \
+python samplecodes/check.entraid_token.py | grep -v '^===' \
   | jq 'if .roles then (if (.roles | any(. == "tartaria-agent")) then "✅ OK: tartaria-agent is included in roles" else "❌ NG: tartaria-agent not found in roles — run az logout && az login" end) else "⚠️ roles claim is missing — run az logout && az login" end'
 ```
 
@@ -186,7 +186,7 @@ export A2A_BASE_URL=$(azd env get-value A2A_AGENT_API_URL)
 export A2A_AGENT_CARD_PATH="agent-card.json"
 export AZURE_TOKEN_SCOPE="api://$(azd env get-value A2A_OAUTH_APP_CLIENT_ID)/.default"
 
-python a2a-agent.py --new
+python samplecodes/a2a-agent.py --new
 ```
 
 Ask something about Tartaria:
@@ -198,8 +198,8 @@ Agent: ...answer grounded on the Foundry IQ knowledge base with source reference
 
 Useful options:
 
-- `python a2a-agent.py` — continue the previous conversation (reuses the `context_id` stored in `.a2a_context`; pass `--new` to discard it and start fresh)
-- `A2A_DEBUG=1 python a2a-agent.py` — print HTTP status and the `X-Routed-Backend` response header, so you can see which Foundry backend the sticky load balancer selected
+- `python samplecodes/a2a-agent.py` — continue the previous conversation (reuses the `context_id` stored in `.a2a_context`; pass `--new` to discard it and start fresh)
+- `A2A_DEBUG=1 python samplecodes/a2a-agent.py` — print HTTP status and the `X-Routed-Backend` response header, so you can see which Foundry backend the sticky load balancer selected
 
 ### 2. Foundry agents (verify-with-approle / verify-without-approle) → APIM → tartaria-agent
 
@@ -269,7 +269,7 @@ az cognitiveservices account deployment delete \
   -g $RG -n <account name from step 1> --deployment-name $CHAT_DEPLOYMENT
 
 # 3. Send an A2A request in debug mode (X-Routed-Backend header is printed)
-A2A_DEBUG=1 python a2a-agent.py
+A2A_DEBUG=1 python samplecodes/a2a-agent.py
 # -> The first request takes ~10 s (4 retries at 2 s interval + failover attempt),
 #    then the answer comes back with X-Routed-Backend showing the OTHER account.
 
