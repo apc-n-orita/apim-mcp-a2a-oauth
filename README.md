@@ -287,6 +287,31 @@ What to observe:
 - With `MONITOR` running in another terminal, you can see the `SET a2a-backend-oid-...` command issued at the moment of failover.
 - The JSON-RPC errors are recorded in the Application Insights `exceptions` table as `JsonRpcError` (with `agentName` / `backend` / `attempt` properties).
 
+**Query errors in Application Insights:**
+
+Run this KQL query in the Application Insights **Logs** tab to inspect JSON-RPC errors and track failover attempts:
+
+```kusto
+exceptions
+| where timestamp > ago(1h)
+| where type == "JsonRpcError"
+| extend
+    agentName    = tostring(customDimensions["agentName"]),
+    backend      = tostring(customDimensions["backend"]),
+    attempt      = tostring(customDimensions["attempt"]),
+    errorMessage = tostring(customDimensions["errorMessage"]),
+    errorCode = tostring(customDimensions["errorCode"])
+| project timestamp, type, outerMessage, severityLevel, agentName, backend, attempt, errorCode, errorMessage
+| order by timestamp desc, attempt desc
+```
+
+This query surfaces:
+- **timestamp**: when the error occurred
+- **agentName**: target agent (e.g., `tartaria-agent`)
+- **backend**: which Foundry account encountered the failure
+- **attempt**: retry attempt number (1–5)
+- **errorCode** / **errorMessage**: the JSON-RPC error details
+
 ## On Balance: Security and Developer Enablement as Separate Layers
 
 This hands-on demonstrates a powerful architectural principle often misunderstood in practice: **security and developer experience are not opposing forces that demand compromise—they are distinct layers that can each operate at full capacity simultaneously.**
