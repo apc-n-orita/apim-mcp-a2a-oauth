@@ -3,10 +3,23 @@
 # ---------------------------------------------
 # Azure AI Search Knowledge Source & Knowledge Base provisioning script
 # Docs references:
-# - Knowledge Sources - Create or Update: https://learn.microsoft.com/en-us/rest/api/searchservice/knowledge-sources/create-or-update?view=rest-searchservice-2025-11-01-preview
-# - Knowledge Bases - Create or Update: https://learn.microsoft.com/en-us/rest/api/searchservice/knowledge-bases/create-or-update?view=rest-searchservice-2025-11-01-preview
+# - Knowledge Sources - Create or Update: https://learn.microsoft.com/en-us/rest/api/searchservice/knowledge-sources/create-or-update?view=rest-searchservice-2026-05-01-preview
+# - Knowledge Bases - Create or Update: https://learn.microsoft.com/en-us/rest/api/searchservice/knowledge-bases/create-or-update?view=rest-searchservice-2026-05-01-preview
 # - API versions: https://learn.microsoft.com/en-us/rest/api/searchservice/search-service-api-versions
 # - RBAC (Bearer token instead of api-key): https://learn.microsoft.com/en-us/azure/search/search-security-rbac
+#
+# NOTE on api_version: 2026-04-01 is the latest *stable* Search Service API, but it
+# introduces a breaking, minimal "extractive-only" knowledge base contract that removes
+# outputMode/answerInstructions/retrievalInstructions/retrievalReasoningEffort — all of
+# which this script relies on for answer synthesis with custom instructions. This script
+# therefore stays on 2026-05-01-preview, the latest preview version, which has NO breaking
+# changes from 2025-11-01-preview (only additive features):
+# https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-migrate#version-specific-changes
+#
+# Prerequisite: starting with 2026-04-01 (and therefore also 2026-05-01-preview), agentic
+# retrieval billing consent is controlled by a separate `knowledgeRetrieval` management-plane
+# property (independent of `semanticSearch`). It defaults to "free", which is sufficient for
+# this hands-on; see https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-enable-disable
 # ---------------------------------------------
 
 # Non-interactive argument parsing
@@ -26,7 +39,7 @@ chat_deployment_id="$6"
 chat_model_name="$7"
 reasoning_effort="$8"
 
-api_version="2025-11-01-preview"
+api_version="2026-05-01-preview"
 
 # Get Azure AI Search data plane access token
 echo "Getting Azure AI Search data plane access token (resource=https://search.azure.com)..."
@@ -120,7 +133,7 @@ handle_put_result() {
 
 # ---------------------------------------------
 # Knowledge Source creation/update (via REST)
-# PUT {endpoint}/knowledgesources('{sourceName}')?api-version=2025-11-01-preview
+# PUT {endpoint}/knowledgesources('{sourceName}')?api-version=2026-05-01-preview
 # Required header: Prefer: return=representation
 # ---------------------------------------------
 
@@ -136,14 +149,7 @@ knowledge_source_body=$(cat <<EOF
     "semanticConfigurationName": null,
     "sourceDataFields": [],
     "searchFields": []
-  },
-  "azureBlobParameters": null,
-  "mcpToolParameters": null,
-  "fabricIQParameters": null,
-  "webParameters": null,
-  "remoteSharePointParameters": null,
-  "indexedSharePointParameters": null,
-  "indexedOneLakeParameters": null
+  }
 }
 EOF
 )
@@ -154,7 +160,7 @@ handle_put_result "Knowledge Source" "/tmp/knowledge_source_resp.json"
 
 # ---------------------------------------------
 # Knowledge Base creation/update (via REST)
-# PUT {endpoint}/knowledgebases('{knowledgeBaseName}')?api-version=2025-11-01-preview
+# PUT {endpoint}/knowledgebases('{knowledgeBaseName}')?api-version=2026-05-01-preview
 # Required header: Prefer: return=representation
 # ---------------------------------------------
 
