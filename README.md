@@ -13,20 +13,25 @@ This hands-on lab demonstrates the end-to-end flow for securely calling an A2A a
 
 In both patterns, APIM enforces the same product policy: Entra ID token validation, **App Role–based authorization** (`roles` claim must match the agent name), per-caller sticky load balancing across Foundry backends (Redis external cache), retry/failover, and JSON-RPC error telemetry to Application Insights. For technical details, see [Technical Details](tech_use.md).
 
-### Pattern 1: Local A2A client → APIM → tartaria-agent
+### End-to-End Sequence (Pattern 1 & 2)
 
-The caller acquires an Entra ID access token for the `a2a-agent` application (audience `api://{a2a-oauth-app-id}`). APIM validates the token and checks that the `roles` claim contains the target agent name (`tartaria-agent`).
+Both patterns follow the same sequence against APIM and the Foundry project — only the caller identity and token-acquisition method differ:
+
+- **Pattern 1**: the **local A2A client** (`a2a-agent.py`) acquires an Entra ID access token for the `a2a-agent` application (audience `api://{a2a-oauth-app-id}`) via the signed-in user.
+- **Pattern 2**: the **Foundry agent** (`a2a-caller`) acquires a token for the same application via its A2A tool connection, using the **project Managed Identity**.
+
+In both cases APIM validates the token and checks that the `roles` claim contains the target agent name (`tartaria-agent`).
 
 ```mermaid
 sequenceDiagram
-    participant Client as Local A2A client (a2a-agent.py)
+    participant Client as Caller (a2a-agent.py client / a2a-caller agent)
     participant Entra as Entra ID
     participant APIM as API Management
     participant Foundry as Foundry project (tartaria-agent)
     participant KB as Foundry IQ Knowledge Base (AI Search)
 
     Client->>Entra: 1) Request access token (api://{a2a-oauth-app-id})
-    Entra-->>Client: 2) Return access token (roles claim)
+    Entra-->>Client: 2) Return access token (roles claim only if App Role assigned)
 
     Client->>APIM: 3) GET /a2a/tartaria-agent/agent-card.json
     APIM-->>Client: 4) Return agent card
@@ -34,49 +39,25 @@ sequenceDiagram
     Client->>APIM: 5) A2A message/send with access token
     Note over APIM: 6) Validate token + check roles claim == agent name
     Note over APIM: 7) Sticky backend selection (oid → Redis)
-    APIM->>Entra: 8a) Acquire Foundry token via APIM Managed Identity
-    APIM->>Foundry: 8b) Forward A2A request with MSI token
-
-    Foundry->>KB: 9) knowledge_base_retrieve (MCP, project MI)
-    KB-->>Foundry: 10) Grounded results
-    Foundry-->>APIM: 11) A2A response
 
     alt roles claim matches
+        APIM->>Entra: 8a) Acquire Foundry token via APIM Managed Identity
+        APIM->>Foundry: 8b) Forward A2A request with MSI token
+        Foundry->>KB: 9) knowledge_base_retrieve (MCP, project MI)
+        KB-->>Foundry: 10) Grounded results
+        Foundry-->>APIM: 11) A2A response
         APIM-->>Client: 12a) Return agent answer
     else roles claim missing/mismatch
         APIM-->>Client: 12b) 403 Forbidden
     end
 ```
 
-### Pattern 2: Foundry agent → APIM → tartaria-agent (A2A tool)
-
-Two verification projects are provisioned in the first Foundry account, each containing an `a2a-caller` prompt agent with an A2A tool connection (`ProjectManagedIdentity` auth) pointing at the APIM endpoint:
+For Pattern 2, two verification projects are provisioned in the first Foundry account, each containing an `a2a-caller` prompt agent with an A2A tool connection (`ProjectManagedIdentity` auth) pointing at the APIM endpoint — they exercise the two branches of the `alt` block above:
 
 | Project                  | App Role on project managed identity | Expected result                           |
 | ------------------------ | ------------------------------------ | ----------------------------------------- |
 | `verify-with-approle`    | `tartaria-agent` role assigned       | ✅ APIM policy passes, answer is returned |
 | `verify-without-approle` | not assigned                         | ❌ APIM policy returns 403                |
-
-```mermaid
-sequenceDiagram
-    participant Caller as a2a-caller agent (verify-* project)
-    participant Entra as Entra ID
-    participant APIM as API Management
-    participant Foundry as Foundry project (tartaria-agent)
-
-    Caller->>Entra: 1) Acquire token with project Managed Identity (api://{a2a-oauth-app-id}/.default)
-    Entra-->>Caller: 2) Return token (roles claim only if App Role assigned)
-    Caller->>APIM: 3) A2A message/send via A2A tool connection
-    Note over APIM: 4) Validate token + check roles claim == agent name
-
-    alt verify-with-approle (role assigned)
-        APIM->>Foundry: 5a) Forward with APIM MSI token
-        Foundry-->>APIM: 6a) A2A response
-        APIM-->>Caller: 7a) Return agent answer
-    else verify-without-approle (no role)
-        APIM-->>Caller: 5b) 403 Forbidden
-    end
-```
 
 ## Architecture Features
 
