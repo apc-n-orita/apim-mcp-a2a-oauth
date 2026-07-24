@@ -79,6 +79,26 @@ If no rule matches, APIM returns `403 Access denied: role does not match agent '
 
 After authorization, `authentication-managed-identity` (resource `https://ai.azure.com/`) replaces the `Authorization` header with the APIM managed identity token before forwarding — the Foundry backend never sees the caller's original token (APIM acts as the token broker).
 
+### Why App Roles at APIM, Not Foundry Agent-Scope RBAC Directly
+
+Microsoft Foundry itself supports assigning RBAC roles at the scope of an individual agent — a role such as **Foundry Agent Consumer** can be assigned directly at `.../projects/{project}/agents/{agentName}`, restricting endpoint access to that one agent without granting access to the rest of the project ([Role-based access control for Microsoft Foundry — agent-scope role assignments](https://learn.microsoft.com/azure/foundry/concepts/rbac-foundry#manage-role-assignments)). Assigning this role directly to a caller's identity is enough, on its own, for that caller to invoke the agent's endpoint straight from Foundry — no APIM involvement required.
+
+This hands-on deliberately does **not** rely on that path for end-user access. The goal here is to demonstrate **end-to-end, token-level access control**: a single user token is validated and authorized against the `roles` claim baked into that token, and only after that check does APIM (as the token broker) mint a fresh Foundry-scoped token to forward the request. Combined with `disableLocalAuth` on every Foundry account (see below), this design has a second, load-bearing purpose: it forces every caller through APIM. If end users instead held Foundry agent-scope RBAC roles directly, they could call the Foundry endpoint directly and skip APIM's App Role check, load balancing, rate limiting, and JSON-RPC error telemetry entirely — the gateway would become optional rather than mandatory.
+
+**Claim-based (APIM App Role) vs. live RBAC (Foundry agent scope)**
+
+| | APIM App Role (`roles` claim) | Foundry Agent-Scope RBAC |
+|---|---|---|
+| What's checked | The `roles` claim inside the already-issued JWT (baked in at token issuance) | The live Azure RBAC role-assignment store, evaluated on each request — the same model used for every other Azure resource |
+| Where the check happens | APIM policy, before ever reaching Foundry | Foundry's own data plane, at the scope of the agent |
+| Propagation of a **new** grant (human user) | Only after the caller acquires a new token; App Role changes aren't retroactive to already-issued tokens, and an already-cached token stays valid for its normal lifetime (typically up to ~1 hour) before a refresh picks up the new claim | Near-immediate — the RBAC store is authoritative and re-evaluated per request |
+| Propagation of a **new** grant (service principal / managed identity) | Managed identity token services cache per-resource for **up to ~24 hours**; an App Role assignment can take that long to take effect for a service principal ([Use managed identities for App Service and Azure Functions](https://learn.microsoft.com/azure/app-service/overview-managed-identity#configure-the-target-resource): *"back-end services for managed identities maintain a cache per resource URI for around 24 hours... you might need to wait up to around 24 hours for the Azure resource that's using the identity to have the correct access"*) | No comparable lag |
+| Network path | Requires going through APIM (paired with `disableLocalAuth`, this is what makes APIM mandatory) | Calls the Foundry data-plane endpoint directly — APIM is bypassed entirely unless network access is also restricted |
+
+This is the same class of tradeoff already noted for [PIM for Groups](#production-considerations-deploying-identity-and-jit-access) below: claims embedded in a token lag behind the authorization source of truth, while a live RBAC check does not.
+
+**If you use Foundry agent-scope RBAC**, expose the Foundry account via a [private endpoint](https://learn.microsoft.com/azure/foundry/how-to/configure-private-link), with APIM reaching it over that private link.
+
 ### JSON-RPC Error Telemetry to Application Insights
 
 The A2A protocol is JSON-RPC: **a failed agent run still returns HTTP 200**, with the failure expressed only inside the body (`{"error": {"code": ..., "message": ...}}`). This creates a blind spot in standard APIM telemetry:
