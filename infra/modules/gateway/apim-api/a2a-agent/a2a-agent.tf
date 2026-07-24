@@ -80,7 +80,7 @@ resource "azapi_resource" "a2a_api" {
     properties = {
       type                 = "a2a"
       displayName          = var.agent_name
-      description          = ""
+      description          = "A2A endpoint for the ${var.agent_name}"
       path                 = "a2a/${var.agent_name}"
       protocols            = ["https"]
       subscriptionRequired = false

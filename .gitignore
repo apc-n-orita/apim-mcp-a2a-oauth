@@ -46,3 +46,7 @@ __blobstorage__*
 Azurite*
 settings.json
 .a2a_context
+CLAUDE.md
+graphify/
+graphify-out/
+*-graphify-out/
