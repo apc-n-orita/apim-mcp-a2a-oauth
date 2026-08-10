@@ -197,24 +197,18 @@
 			</choose>
 			<forward-request buffer-request-body="true" />
 			<!-- JSON-RPC エラー検知: HTTP 200 でもボディに {"error":{"code":...,"message":...}} がある場合を検出
-                 preserveContent: true でボディを保持し 2 回目以降の読み取りを可能にする
+                 preserveContent: true でボディを保持し、クライアントへの返却を壊さない
+                 ボディのパースは 1 回だけ行い JObject を変数に保持する (パース不可時は空 JObject)
                  エラーなし → 空文字 → retry condition が false になりループ終了 -->
-			<set-variable name="jsonRpcErrorCode" value="@{
+			<set-variable name="jsonRpcBody" value="@{
                 try {
-                    var body = context.Response.Body.As<JObject>(preserveContent: true);
-                    return body?.SelectToken("error.code")?.ToString() ?? "";
+                    return context.Response.Body.As<JObject>(preserveContent: true) ?? new JObject();
                 } catch {
-                    return "";
+                    return new JObject();
                 }
             }" />
-			<set-variable name="jsonRpcErrorMsg" value="@{
-                try {
-                    var body = context.Response.Body.As<JObject>(preserveContent: true);
-                    return body?.SelectToken("error.message")?.ToString() ?? "";
-                } catch {
-                    return "";
-                }
-            }" />
+			<set-variable name="jsonRpcErrorCode" value="@(context.Variables.GetValueOrDefault<JObject>("jsonRpcBody")?.SelectToken("error.code")?.ToString() ?? "")" />
+			<set-variable name="jsonRpcErrorMsg" value="@(context.Variables.GetValueOrDefault<JObject>("jsonRpcBody")?.SelectToken("error.message")?.ToString() ?? "")" />
 			<!-- JSON-RPC エラーを App Insights exceptions テーブルへ送信 (v2.1/track Entra ID 認証) -->
 			<choose>
 				<when condition="@(!string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("jsonRpcErrorMsg", "")))">
