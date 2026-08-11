@@ -149,20 +149,20 @@
 	<backend>
 		<!--
       5xx / 429 / JSON-RPC エラー発生時のリトライ＋フェイルオーバー戦略
-      試行 1〜4: 割り当て済みバックエンドでリトライ
-      試行 5   : 別バックエンドへフェイルオーバー
-                 Redis: 試行 5 で常に failover 先へ更新（agentcard を除く）
+      試行 1〜3: 割り当て済みバックエンドでリトライ
+      試行 4   : 別バックエンドへフェイルオーバー
+                 Redis: 試行 4 で常に failover 先へ更新（agentcard を除く）
     -->
-		<retry condition="@(context.Response == null || context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && context.Response.StatusCode <= 599) || !string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("jsonRpcErrorMsg", "")))" count="4" interval="2" first-fast-retry="false">
+		<retry condition="@(context.Response == null || context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && context.Response.StatusCode <= 599) || !string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("jsonRpcErrorMsg", "")))" count="3" interval="2" first-fast-retry="false">
 			<set-variable name="attempt-count" value="@(context.Variables.GetValueOrDefault<int>("attempt-count", 0) + 1)" />
 			<!-- フェイルオーバー判定用に直前のレスポンスコードを保存 -->
 			<set-variable name="lastResponseCode" value="@(context.Response != null ? context.Response.StatusCode : 0)" />
 			<choose>
-				<!-- 試行 1〜4: 割り当て済みバックエンドを使用 -->
-				<when condition="@(context.Variables.GetValueOrDefault<int>("attempt-count") <= 4)">
+				<!-- 試行 1〜3: 割り当て済みバックエンドを使用 -->
+				<when condition="@(context.Variables.GetValueOrDefault<int>("attempt-count") <= 3)">
 					<set-backend-service base-url="@((string)context.Variables["backendUrl"])" />
 				</when>
-				<!-- 試行 5: リトライ全失敗 → 別バックエンドへフェイルオーバー -->
+				<!-- 試行 4: リトライ全失敗 → 別バックエンドへフェイルオーバー -->
 				<otherwise>
 					<set-variable name="failoverBackendId" value="@{
             var current = (string)context.Variables["assignedBackendId"];
