@@ -251,7 +251,7 @@ az cognitiveservices account deployment delete \
 
 # 3. Send an A2A request in debug mode (X-Routed-Backend header is printed)
 A2A_DEBUG=1 python samplecodes/a2a-agent.py
-# -> The first request takes ~10 s (4 retries at 2 s interval + failover attempt),
+# -> The first request takes ~8 s (3 retries at 2 s interval + failover attempt),
 #    then the answer comes back with X-Routed-Backend showing the OTHER account.
 
 # 4. Confirm the sticky assignment was rewritten to the failover target
@@ -290,7 +290,7 @@ This query surfaces:
 - **timestamp**: when the error occurred
 - **agentName**: target agent (e.g., `tartaria-agent`)
 - **backend**: which Foundry account encountered the failure
-- **attempt**: retry attempt number (1–5)
+- **attempt**: retry attempt number (1–4)
 - **errorCode** / **errorMessage**: the JSON-RPC error details
 
 ## On Balance: Security and Developer Enablement as Separate Layers
