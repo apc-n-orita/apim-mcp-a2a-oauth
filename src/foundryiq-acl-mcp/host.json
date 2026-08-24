@@ -1,0 +1,30 @@
+{
+  "version": "2.0",
+  "telemetryMode": "OpenTelemetry",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Exception"
+      }
+    }
+  },
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.0.0, 5.0.0)"
+  },
+  "extensions": {
+    "mcp": {
+      "instructions": "このMCPサーバーは Foundry IQ ナレッジベースを検索します。呼び出し元ユーザーが閲覧を許可されたドキュメントのみが返ります。ツール呼び出しには x-ms-query-source-authorization ヘッダー (audience: https://search.azure.com) が必要です。",
+      "serverName": "foundryiq-acl-mcp-server",
+      "serverVersion": "1.0.0",
+      "encryptClientState": true,
+      "messageOptions": {
+        "useAbsoluteUriForEndpoint": false
+      },
+      "system": {
+        "webhookAuthorizationLevel": "Anonymous"
+      }
+    }
+  }
+}

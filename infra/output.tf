@@ -43,6 +43,21 @@ output "KNOWLEDGE_BASE_MCP_URL" {
   value       = local.kb_mcp_url
 }
 
+output "KNOWLEDGE_BASE_ACL_NAME" {
+  description = "Name of the ACL-enabled Foundry IQ knowledge base"
+  value       = local.knowledge_acl.knowledge_base_name
+}
+
+output "KNOWLEDGE_BASE_ACL_MCP_URL" {
+  description = "MCP endpoint of the ACL-enabled Foundry IQ knowledge base"
+  value       = local.kb_mcp_url_acl
+}
+
+output "ADLS_ACL_GROUP_ID" {
+  description = "Object ID of the Entra ID group with read access to the ACL-protected Tartarian/ documents; add test users/groups to this group to see them in the filtered search results"
+  value       = azuread_group.adls_acl_group.object_id
+}
+
 output "STORAGE_ACCOUNT_NAME" {
   description = "Name of the storage account holding the knowledge documents"
   value       = module.storage.name

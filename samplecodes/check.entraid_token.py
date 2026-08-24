@@ -12,7 +12,7 @@ if not oauth_app_id:
     sys.exit(1)
 
 credential = DefaultAzureCredential()
-scope = f"api://{oauth_app_id}/.default"
+scope = f"{oauth_app_id}/.default"
 token = credential.get_token(scope).token
 parts = token.split('.')
 if len(parts) >= 2:

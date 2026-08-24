@@ -1,0 +1,34 @@
+# funcmcp_kb_retrieval.py 用の依存
+# ベースは apim-mcp-oauth/src/funcmcp/requirements.txt と同じ構成
+
+# azure-functions はピン留めしない。
+# mcp_tool / mcp_tool_property / mcp_resource_trigger が使えるかは
+# Functions ランタイム (Python ワーカー同梱の azure.functions) の版で決まる。
+azure-functions
+python-dotenv
+# 1.8.6 以降を要求する。1.8.5 以前は既定サンプラーが
+# ApplicationInsightsSampler(sampling_ratio=1.0) で全トレースを保持するのに対し、
+# 1.8.6 以降は RateLimitedSampler(5.0) が既定になる。
+# telemetry.py の enable_trace_based_sampling_for_logs=False はこの既定を前提にしている。
+#
+# 実際に解決されるのは 1.8.6。下の opentelemetry-sdk のピンが上限として効くため:
+#   1.8.6       -> opentelemetry-sdk==1.39
+#   1.8.7/1.8.8 -> opentelemetry-sdk==1.40
+#   1.8.9       -> opentelemetry-sdk~=1.43.0
+# sdk のピンを動かすときは、azure-monitor-opentelemetry も併せて確認すること。
+azure-monitor-opentelemetry>=1.8.6
+opentelemetry-api==1.39.0
+opentelemetry-sdk==1.39.0
+
+# Foundry IQ ナレッジベース検索 (KnowledgeBaseRetrievalClient)
+#
+# プレリリース版を厳密に指定する。安定版 12.0.0 では以下が成立しない:
+#   - retrieve() に query_source_authorization パラメータが無く、
+#     渡しても **kwargs に吸われて黙って無視される (ACL が効かないまま動く)
+#   - api_version の既定が 2026-04-01 で、answerSynthesis が使えない
+# 12.1.0b1 は既定が 2026-05-01-preview で、ACL パラメータを持つ。
+#
+# バージョンを厳密に指定しているため pip の --pre は不要
+# (要件指定子がプレリリースを明示している場合、pip はそれを許可する)。
+azure-identity>=1.19.0
+azure-search-documents==12.1.0b1

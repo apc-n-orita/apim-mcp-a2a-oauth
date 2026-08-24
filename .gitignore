@@ -50,3 +50,5 @@ CLAUDE.md
 graphify/
 graphify-out/
 *-graphify-out/
+local.settings.json
+mcp.json

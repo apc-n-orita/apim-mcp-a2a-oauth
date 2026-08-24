@@ -1,4 +1,9 @@
 name: a2a-agent-foundry
+services:
+  foundryiq-acl-mcp:
+    project: ./src/foundryiq-acl-mcp/
+    language: python
+    host: function
 infra:
   provider: terraform
   path: infra
