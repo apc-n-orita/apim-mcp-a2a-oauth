@@ -46,6 +46,16 @@ def configure() -> None:
         logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(
             logging.WARNING
         )
+        # Functions のPythonワーカー環境ではこのロガーがINFOレベルで有効になっており、
+        # 送信バッチのたびに "Transmission succeeded: Item received: N. Items accepted: N"
+        # が traces テーブルに大量に残ってノイズになる (自前のログとは無関係な自己診断ログ)。
+        logging.getLogger("azure.monitor.opentelemetry.exporter.export._base").setLevel(
+            logging.WARNING
+        )
+        # azure-identity (DefaultAzureCredential配下) も同様にFunctions環境ではINFOで有効になっており、
+        # retrieve() のたびに "ManagedIdentityCredential.get_token_info succeeded" 等が積み上がる。
+        # azure.identity._internal.* の子ロガーはこの親のレベルを継承するため、ここ1箇所で抑制できる。
+        logging.getLogger("azure.identity").setLevel(logging.WARNING)
 
     _configured = True
 

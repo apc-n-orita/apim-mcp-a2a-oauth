@@ -845,7 +845,7 @@ module "foundryiq_acl_mcp" {
     },
     {
       name  = "OTEL_TRACES_SAMPLER"
-      value = "parentbased_traceidratio"
+      value = "parentbased_trace_id_ratio"
     },
     {
       name  = "OTEL_TRACES_SAMPLER_ARG"
@@ -864,12 +864,23 @@ module "foundryiq_acl_mcp" {
   depends_on = [module.foundryiq_acl_mcp_storage]
 }
 
-# 共有マネージド ID (mcp) へのロール割り当て (このFunction専用ストレージ・App Insightsに対して)
-module "foundryiq_acl_mcp_role" {
-  source                              = "./modules/app/function/role"
-  storage_account_scope_id            = module.foundryiq_acl_mcp_storage.storage_account_id
-  monitor_scope_id                    = data.azurerm_application_insights.appi.id
-  user_assigned_identity_principal_id = data.azurerm_user_assigned_identity.mcp.principal_id
+# 共有マネージド ID (mcp) へのロール割り当て (このFunction専用ストレージに対して)
+resource "azurerm_role_assignment" "foundryiq_acl_mcp_storage_queue_data_contributor" {
+  scope                = module.foundryiq_acl_mcp_storage.storage_account_id
+  role_definition_name = "Storage Queue Data Contributor"
+  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
+}
+
+resource "azurerm_role_assignment" "foundryiq_acl_mcp_storage_blob_data_owner" {
+  scope                = module.foundryiq_acl_mcp_storage.storage_account_id
+  role_definition_name = "Storage Blob Data Owner"
+  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
+}
+
+resource "azurerm_role_assignment" "foundryiq_acl_mcp_storage_table_data_contributor" {
+  scope                = module.foundryiq_acl_mcp_storage.storage_account_id
+  role_definition_name = "Storage Table Data Contributor"
+  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
 }
 
 # 共有マネージド ID (mcp) → AI Search (kb_client.py が DefaultAzureCredential 経由で knowledgebases/retrieve を呼ぶ)
