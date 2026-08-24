@@ -890,6 +890,18 @@ resource "azurerm_role_assignment" "foundryiq_acl_mcp_search_index_data_reader" 
   principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
 }
 
+# --- APIM 側の MCP API 配線 (apim-mcp-oauth の funcmcp を参考) ---
+module "foundryiq_acl_mcp_api" {
+  source                         = "./modules/gateway/apim-api/foundryiq-acl-mcp"
+  resource_group_name            = local.resource_group_name
+  api_management_name            = var.apim_name
+  api_management_id              = data.azurerm_api_management.apim.id
+  api_management_logger_id       = local.apim_logger_id
+  mcp_url                        = module.foundryiq_acl_mcp.uri
+  tenant_id                      = data.azuread_client_config.current.tenant_id
+  diagnostic_sampling_percentage = 100.0
+}
+
 # ------------------------------------------------------------------------------------------------------
 # tartaria-agent (prompt agent) のデプロイ + A2A プロトコル有効化
 # ------------------------------------------------------------------------------------------------------
