@@ -1,0 +1,36 @@
+<!--
+    - Policies are applied in the order they appear.
+    - Position <base/> inside a section to inherit policies from the outer scope.
+    - Comments within policies are not preserved.
+-->
+<policies>
+	<inbound>
+		<base />
+		<!-- 呼び出し元(エージェント/クライアント)が、ACL評価対象のユーザー本人としての
+             search.azure.com スコープのトークンを持っていることを検証する。
+             これは Function 呼び出しの認可であると同時に、そのままACL用のユーザー識別にもなる。 -->
+		<validate-azure-ad-token tenant-id="${tenant_id}" header-name="Authorization" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. Access token is missing or invalid">
+			<audiences>
+				<audience>https://search.azure.com/</audience>
+			</audiences>
+		</validate-azure-ad-token>
+		<!-- 検証済みの呼び出し元トークンを、AI Search の ACL 評価用ヘッダーとしてそのまま引き継ぐ -->
+		<set-header name="x-ms-query-source-authorization" exists-action="override">
+			<value>@(context.Request.Headers.GetValueOrDefault("Authorization", ""))</value>
+		</set-header>
+		<authentication-managed-identity resource="{{oauth-app-id}}" output-token-variable-name="msi-access-token" ignore-error="false" />
+		<set-header name="Authorization" exists-action="override">
+			<value>@("Bearer " + (string)context.Variables["msi-access-token"])</value>
+		</set-header>
+		<set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+	</inbound>
+	<backend>
+		<base />
+	</backend>
+	<outbound>
+		<base />
+	</outbound>
+	<on-error>
+		<base />
+	</on-error>
+</policies>

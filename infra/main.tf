@@ -6,6 +6,12 @@ locals {
   # 新規リソースは APIM と同じリソースグループに作成する
   resource_group_name = var.resource_group_name
 
+  # apim-mcp-oauth の共有 Entra ID アプリ (mcp-oauth-app-<suffix>) の名前を、
+  # 既存リソースグループ名の末尾3文字から導出する。
+  # 例: "rg-apim-oauth-ori-zjh" -> "zjh" -> "mcp-oauth-app-zjh"
+  mcp_oauth_suffix           = substr(var.resource_group_name, length(var.resource_group_name) - 3, 3)
+  mcp_oauth_app_display_name = "mcp-oauth-app-${local.mcp_oauth_suffix}"
+
   # 固定名
   agent_name   = "tartaria-agent"
   project_name = "ai-foundry-project"
@@ -28,12 +34,31 @@ locals {
     knowledge_base_name   = "kb-tartalia-${local.docs.acl_type}-gen2"
   }
 
-  # Knowledge Base の MCP エンドポイント (FoundryIQ 接続・エージェントの MCP ツールが参照)
-  kb_mcp_url = "https://${module.ai_search.search_service_name}.search.windows.net/knowledgebases/${local.knowledge.knowledge_base_name}/mcp?api-version=2026-04-01"
+  # Foundry IQ (タルタリアナレッジ) ACL付きインデックス版の各リソース名
+  # acl_off 版とは別名のリソース一式として並存させる (src/foundryiq-acl-mcp のMCP検証用)
+  knowledge_acl = {
+    datasource_name       = "ds-acl-gen2"
+    index_name            = "index-acl-gen2"
+    skillset_name         = "skill-acl-gen2"
+    indexer_name          = "indexer-acl-gen2"
+    knowledge_source_name = "ks-tartalia-acl-gen2"
+    knowledge_base_name   = "kb-tartalia-acl-gen2"
+  }
 
-  # AI Search のベクトライザー / Knowledge Base モデルが参照する OpenAI エンドポイント
+  # Knowledge Base の MCP エンドポイント (FoundryIQ 接続・エージェントの MCP ツールが参照)
+  kb_mcp_url     = "https://${module.ai_search.search_service_name}.search.windows.net/knowledgebases/${local.knowledge.knowledge_base_name}/mcp?api-version=2026-04-01"
+  kb_mcp_url_acl = "https://${module.ai_search.search_service_name}.search.windows.net/knowledgebases/${local.knowledge_acl.knowledge_base_name}/mcp?api-version=2026-04-01"
+
+  # AI Search のベクトライザーが参照する OpenAI エンドポイント
   # (APIM 経由: apim_api_openai モジュールの openai API がバックエンドの Foundry に LB する)
   aoai_resource_uri = data.azurerm_api_management.apim.gateway_url
+
+  # Knowledge Base の model (query planning / answer synthesis) が参照する OpenAI エンドポイント
+  # Knowledge Base の LLM 設定は APIM 等のカスタムドメイン経由をサポートしないため、
+  # (参考: https://learn.microsoft.com/azure/search/search-how-to-configure-azure-openai-api-management#unsupported-scenarios)
+  # ベクトライザーとは別に、Foundryプロジェクトのネイティブなエンドポイントを直接指定する。
+  # 複数の ai_locations がある場合も、先頭 (module.ai_foundry["0"]) を固定で使う。
+  kb_llm_resource_uri = "https://${module.ai_foundry["0"].name}.services.ai.azure.com"
 
   # 既存 APIM 上の Application Insights logger
   apim_logger_id = "${data.azurerm_api_management.apim.id}/loggers/app-insights-logger"
@@ -145,9 +170,20 @@ data "azurerm_api_management" "apim" {
   resource_group_name = var.resource_group_name
 }
 
+# foundryiq_acl Function App の azapi_resource (rg_id が必要) 用
+data "azurerm_resource_group" "rg" {
+  name = var.resource_group_name
+}
+
 data "azurerm_application_insights" "appi" {
   name                = var.application_insights_name
   resource_group_name = var.resource_group_name
+}
+
+# apim-mcp-oauth が持つ共有 Entra ID アプリ (Mcp.Invoke ロール定義済み)。
+# foundryiq_acl Function の Easy Auth はこれを再利用し、新規のアプリ登録は行わない。
+data "azuread_application" "mcp_oauth" {
+  display_name = local.mcp_oauth_app_display_name
 }
 
 data "azurerm_log_analytics_workspace" "law" {
@@ -338,19 +374,97 @@ module "storage" {
   }
 }
 
+# FoundryIQ ACL付きインデックス検証用のグループ (src/foundryiq-acl-mcp のMCP検証で使う)
+# デプロイ実行ユーザーをメンバーに含め、ADLS Gen2 の ACL 越しにこのグループへ読み取りを許可する。
+resource "azuread_group" "adls_acl_group" {
+  display_name     = "adls-acl-group-${local.resource_token}"
+  security_enabled = true
+  members          = [data.azurerm_client_config.current.object_id]
+}
+
 resource "azurerm_storage_data_lake_gen2_filesystem" "ais_docs" {
-  depends_on         = [azurerm_role_assignment.current_user_storage_blob_data_contributor]
+  depends_on         = [azurerm_role_assignment.current_user_storage_blob_data_contributor, azurerm_role_assignment.current_user_storage_blob_data_owner]
   storage_account_id = module.storage.storage_account_id
   name               = "ais-docs"
+  ace {
+    type        = "user"
+    permissions = "rwx"
+  }
+  ace {
+    type        = "group"
+    permissions = "r-x"
+  }
+  ace {
+    type        = "group"
+    id          = azuread_group.adls_acl_group.object_id
+    permissions = "--x"
+  }
+  ace {
+    type        = "mask"
+    permissions = "r-x"
+  }
+  ace {
+    type        = "other"
+    permissions = "---"
+  }
 }
 
 resource "azurerm_storage_data_lake_gen2_path" "tartarian" {
-  depends_on         = [azurerm_role_assignment.current_user_storage_blob_data_contributor]
+  depends_on         = [azurerm_role_assignment.current_user_storage_blob_data_contributor, azurerm_role_assignment.current_user_storage_blob_data_owner]
   storage_account_id = module.storage.storage_account_id
   filesystem_name    = azurerm_storage_data_lake_gen2_filesystem.ais_docs.name
   path               = "Tartarian"
   resource           = "directory"
+
+  ace {
+    type        = "user"
+    permissions = "rwx"
+  }
+  ace {
+    type        = "group"
+    permissions = "r-x"
+  }
+  ace {
+    type        = "group"
+    id          = azuread_group.adls_acl_group.object_id
+    permissions = "r-x"
+  }
+  ace {
+    type        = "mask"
+    permissions = "r-x"
+  }
+  ace {
+    type        = "other"
+    permissions = "---"
+  }
+  ace {
+    scope       = "default"
+    type        = "user"
+    permissions = "rwx"
+  }
+  ace {
+    scope       = "default"
+    type        = "group"
+    permissions = "r-x"
+  }
+  ace {
+    scope       = "default"
+    type        = "group"
+    id          = azuread_group.adls_acl_group.object_id
+    permissions = "r-x"
+  }
+  ace {
+    scope       = "default"
+    type        = "mask"
+    permissions = "r-x"
+  }
+  ace {
+    scope       = "default"
+    type        = "other"
+    permissions = "---"
+  }
 }
+
 
 resource "azurerm_storage_blob" "docs" {
   for_each = { for idx, file in local.docs.docs_files : idx => file }
@@ -405,6 +519,16 @@ resource "azurerm_role_assignment" "ai_foundry_project_appinsights_reader" {
   principal_id         = each.value.output.identity.principalId
 }
 
+# AI Search MI → Foundry (Knowledge Base の model が呼ぶ OpenAI デプロイへのアクセス。resource_uri は APIM を経由できないため直接呼ぶ)
+# 参考: https://learn.microsoft.com/azure/search/agentic-retrieval-how-to-create-knowledge-base#prerequisites
+#       (If the knowledge base specifies an LLM, the search service must have a managed identity
+#        with Cognitive Services User permissions on the Microsoft Foundry resource.)
+resource "azurerm_role_assignment" "aisearch_foundry_cognitive_services_user" {
+  scope                = module.ai_foundry["0"].ai_foundry_id
+  role_definition_name = "Cognitive Services User"
+  principal_id         = module.ai_search.search_service_identity_principal_id
+}
+
 # AI Search MI → ストレージ (インデクサーのドキュメント読み取り)
 resource "azurerm_role_assignment" "aisearch_storage_blob_reader" {
   scope                = module.storage.storage_account_id
@@ -451,6 +575,15 @@ resource "azurerm_role_assignment" "current_user_storage_blob_data_contributor" 
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
+# ACLの設定・変更は所有しているアイテムに対してのみ許可される Storage Blob Data Contributor では不十分。
+# ACL設定にはすべてのアイテムに対する変更を許可する Storage Blob Data Owner が必要
+# (参考: https://learn.microsoft.com/azure/storage/blobs/data-lake-storage-access-control-model#role-based-access-control-azure-rbac)
+resource "azurerm_role_assignment" "current_user_storage_blob_data_owner" {
+  scope                = module.storage.storage_account_id
+  role_definition_name = "Storage Blob Data Owner"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
 resource "azurerm_role_assignment" "current_user_foundry_user" {
   for_each             = azapi_resource.ai_foundry_project
   scope                = each.value.id
@@ -461,6 +594,7 @@ resource "azurerm_role_assignment" "current_user_foundry_user" {
 # ------------------------------------------------------------------------------------------------------
 # AI Search インデックス / Knowledge Base (acl_off 版)
 # ------------------------------------------------------------------------------------------------------
+
 
 resource "null_resource" "provision_search_index" {
   triggers = {
@@ -515,7 +649,7 @@ resource "null_resource" "provision_search_knowledge" {
     knowledge_source_name = local.knowledge.knowledge_source_name
     index_name            = local.knowledge.index_name
     knowledge_base_name   = local.knowledge.knowledge_base_name
-    resource_uri          = local.aoai_resource_uri
+    resource_uri          = local.kb_llm_resource_uri
     chat_deployment_id    = var.openai_chat.model_name
     chat_model_name       = var.openai_chat.model_name
     reasoning_effort      = var.knowledge_reasoning_effort
@@ -536,7 +670,236 @@ resource "null_resource" "provision_search_knowledge" {
     EOT
   }
 
-  depends_on = [null_resource.provision_search_index]
+  depends_on = [null_resource.provision_search_index, azurerm_role_assignment.aisearch_foundry_cognitive_services_user]
+}
+
+
+# ------------------------------------------------------------------------------------------------------
+# AI Search インデックス / Knowledge Base (ACL付き版)
+# acl_off 版と並存する別名のリソース一式。同じ Tartarian/ 配下のドキュメントを
+# ACL (GroupIds) メタデータ付きで取り込む。
+# ------------------------------------------------------------------------------------------------------
+
+resource "null_resource" "provision_search_index_acl" {
+  triggers = {
+    subscription_id      = var.subscription_id
+    resource_group_name  = local.resource_group_name
+    search_service_name  = module.ai_search.search_service_name
+    datasource_name      = local.knowledge_acl.datasource_name
+    storage_account_name = module.storage.name
+    blob_container_name  = azurerm_storage_data_lake_gen2_filesystem.ais_docs.name
+    blob_query           = "Tartarian/"
+    index_name           = local.knowledge_acl.index_name
+    skillset_name        = local.knowledge_acl.skillset_name
+    indexer_name         = local.knowledge_acl.indexer_name
+    resource_uri         = local.aoai_resource_uri
+    deployment_id        = var.openai_embedding.model_name
+    model_name           = var.openai_embedding.model_name
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+      bash ${path.module}/scripts/ais_set_acl_index.sh \
+        ${self.triggers.subscription_id} \
+        ${self.triggers.resource_group_name} \
+        ${self.triggers.search_service_name} \
+        ${self.triggers.datasource_name} \
+        ${self.triggers.storage_account_name} \
+        ${self.triggers.blob_container_name} \
+        ${self.triggers.blob_query} \
+        ${self.triggers.index_name} \
+        ${self.triggers.skillset_name} \
+        ${self.triggers.indexer_name} \
+        ${self.triggers.resource_uri} \
+        ${self.triggers.deployment_id} \
+        ${self.triggers.model_name}
+    EOT
+  }
+
+  depends_on = [
+    module.ai_foundry,
+    module.apim_api_openai,
+    azurerm_storage_blob.docs,
+    azurerm_storage_data_lake_gen2_path.tartarian,
+    azurerm_role_assignment.aisearch_storage_blob_reader,
+    azurerm_role_assignment.current_user_search_service_contributor,
+    azurerm_role_assignment.current_user_search_index_data_contributor,
+  ]
+}
+
+resource "null_resource" "provision_search_knowledge_acl" {
+  triggers = {
+    search_service_name   = module.ai_search.search_service_name
+    knowledge_source_name = local.knowledge_acl.knowledge_source_name
+    index_name            = local.knowledge_acl.index_name
+    knowledge_base_name   = local.knowledge_acl.knowledge_base_name
+    resource_uri          = local.kb_llm_resource_uri
+    chat_deployment_id    = var.openai_chat.model_name
+    chat_model_name       = var.openai_chat.model_name
+    reasoning_effort      = var.knowledge_reasoning_effort
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+      bash ${path.module}/scripts/ais_set_knowledge.sh \
+        ${self.triggers.search_service_name} \
+        ${self.triggers.knowledge_source_name} \
+        ${self.triggers.index_name} \
+        ${self.triggers.knowledge_base_name} \
+        ${self.triggers.resource_uri} \
+        ${self.triggers.chat_deployment_id} \
+        ${self.triggers.chat_model_name} \
+        ${self.triggers.reasoning_effort}
+    EOT
+  }
+
+  depends_on = [null_resource.provision_search_index_acl, azurerm_role_assignment.aisearch_foundry_cognitive_services_user]
+}
+
+# ------------------------------------------------------------------------------------------------------
+# src/foundryiq-acl-mcp の Function App (ACL付き Knowledge Base の MCP ツール)
+# apim-mcp-oauth の funcmcp 構成 (modules/app/function) を移植。
+# Easy Auth (共有アプリ・Mcp.Invokeロール) とマネージド ID は apim-mcp-oauth の既存のものを
+# そのまま再利用し、新規のアプリ登録・IDは作らない。APIM 側の MCP API 配線はまだ行わない。
+# ------------------------------------------------------------------------------------------------------
+
+# apim-mcp-oauth が同じリソースグループに作成済みのマネージド ID (funcmcp/la_mcp と共用)
+data "azurerm_user_assigned_identity" "mcp" {
+  name                = "mcp"
+  resource_group_name = local.resource_group_name
+}
+
+
+# Function 専用のストレージ (既存 module.storage とは別。HNS無し・AzureWebJobsStorage用)
+module "foundryiq_acl_mcp_storage" {
+  source                          = "./modules/storage"
+  name                            = lower("stfuncacl${substr(local.resource_token, 0, 12)}")
+  location                        = var.location
+  resource_group_name             = local.resource_group_name
+  tags                            = local.tags
+  shared_access_key_enabled       = false
+  tier                            = "Standard"
+  replication_type                = "LRS"
+  log_analytics_workspace_id      = data.azurerm_log_analytics_workspace.law.id
+  public_network_access           = local.network_access.public_access
+  is_hns_enabled                  = false
+  allow_nested_items_to_be_public = false
+  network_acls = {
+    default_action = local.network_access.default_action
+  }
+}
+
+module "foundryiq_acl_mcp_plan" {
+  source   = "./modules/host/appserviceplan"
+  name     = "plan-foundryiq-acl-mcp-${var.environment_name}-${substr(local.resource_token, 0, 3)}"
+  location = var.location
+  rg_name  = local.resource_group_name
+  tags     = local.tags
+  sku_name = "FC1"
+  os_type  = "Linux"
+}
+
+module "foundryiq_acl_mcp" {
+  source   = "./modules/app/function/app"
+  name     = "func-foundryiq-acl-mcp-${var.environment_name}-${substr(local.resource_token, 0, 3)}"
+  location = var.location
+  rg_id    = data.azurerm_resource_group.rg.id
+  # azd deploy がこのタグでどの src/<service>/ を配信先にするか判別する (azure.yaml の services キーと一致させる)
+  tags                 = merge(local.tags, { azd-service-name = "foundryiq-acl-mcp" })
+  app_service_plan_id  = module.foundryiq_acl_mcp_plan.APPSERVICE_PLAN_ID
+  runtime_name         = "python"
+  runtime_version      = "3.11"
+  storage_account_name = module.foundryiq_acl_mcp_storage.name
+  function_storage_id  = module.foundryiq_acl_mcp_storage.storage_account_id
+  # primary_blob_endpoint は module.storage の出力に無いため組み立てる
+  primary_blob_endpoint                  = "https://${module.foundryiq_acl_mcp_storage.name}.blob.core.windows.net/"
+  application_insights_connection_string = data.azurerm_application_insights.appi.connection_string
+  identity_client_id                     = data.azurerm_user_assigned_identity.mcp.client_id
+  identity_id                            = data.azurerm_user_assigned_identity.mcp.id
+
+  tenant_id                               = data.azuread_client_config.current.tenant_id
+  azuread_application_entra_app_client_id = data.azuread_application.mcp_oauth.client_id
+
+  app_settings = [
+    {
+      name  = "AZURE_CLIENT_ID"
+      value = data.azurerm_user_assigned_identity.mcp.client_id
+    },
+    {
+      name  = "OTEL_SERVICE_NAME"
+      value = "foundryiq-acl-mcp"
+    },
+    {
+      name  = "WEBSITE_AUTH_AAD_ALLOWED_TENANTS"
+      value = data.azuread_client_config.current.tenant_id
+    },
+    {
+      name  = "WEBSITE_AUTH_PRM_DEFAULT_WITH_SCOPES"
+      value = "api://${data.azuread_application.mcp_oauth.client_id}/user_impersonation"
+    },
+    {
+      name  = "PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY"
+      value = "true"
+    },
+    {
+      name  = "OTEL_TRACES_SAMPLER"
+      value = "parentbased_trace_id_ratio"
+    },
+    {
+      name  = "OTEL_TRACES_SAMPLER_ARG"
+      value = "1"
+    },
+    {
+      name  = "SEARCH_ENDPOINT"
+      value = "https://${module.ai_search.search_service_name}.search.windows.net"
+    },
+    {
+      name  = "KNOWLEDGE_BASE_NAME"
+      value = local.knowledge_acl.knowledge_base_name
+    },
+  ]
+
+  depends_on = [module.foundryiq_acl_mcp_storage]
+}
+
+# 共有マネージド ID (mcp) へのロール割り当て (このFunction専用ストレージに対して)
+resource "azurerm_role_assignment" "foundryiq_acl_mcp_storage_queue_data_contributor" {
+  scope                = module.foundryiq_acl_mcp_storage.storage_account_id
+  role_definition_name = "Storage Queue Data Contributor"
+  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
+}
+
+resource "azurerm_role_assignment" "foundryiq_acl_mcp_storage_blob_data_owner" {
+  scope                = module.foundryiq_acl_mcp_storage.storage_account_id
+  role_definition_name = "Storage Blob Data Owner"
+  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
+}
+
+resource "azurerm_role_assignment" "foundryiq_acl_mcp_storage_table_data_contributor" {
+  scope                = module.foundryiq_acl_mcp_storage.storage_account_id
+  role_definition_name = "Storage Table Data Contributor"
+  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
+}
+
+# 共有マネージド ID (mcp) → AI Search (kb_client.py が DefaultAzureCredential 経由で knowledgebases/retrieve を呼ぶ)
+resource "azurerm_role_assignment" "foundryiq_acl_mcp_search_index_data_reader" {
+  scope                = module.ai_search.search_service_id
+  role_definition_name = "Search Index Data Reader"
+  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
+}
+
+# --- APIM 側の MCP API 配線 (apim-mcp-oauth の funcmcp を参考) ---
+module "foundryiq_acl_mcp_api" {
+  source                         = "./modules/gateway/apim-api/foundryiq-acl-mcp"
+  resource_group_name            = local.resource_group_name
+  api_management_name            = var.apim_name
+  api_management_id              = data.azurerm_api_management.apim.id
+  api_management_logger_id       = local.apim_logger_id
+  mcp_url                        = module.foundryiq_acl_mcp.uri
+  tenant_id                      = data.azuread_client_config.current.tenant_id
+  diagnostic_sampling_percentage = 100.0
 }
 
 # ------------------------------------------------------------------------------------------------------

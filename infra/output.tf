@@ -38,19 +38,19 @@ output "SEARCH_SERVICE_NAME" {
   value       = module.ai_search.search_service_name
 }
 
-output "KNOWLEDGE_BASE_MCP_URL" {
-  description = "MCP endpoint of the Foundry IQ knowledge base"
-  value       = local.kb_mcp_url
-}
-
-output "STORAGE_ACCOUNT_NAME" {
-  description = "Name of the storage account holding the knowledge documents"
-  value       = module.storage.name
+output "ADLS_ACL_GROUP_ID" {
+  description = "Object ID of the Entra ID group with read access to the ACL-protected Tartarian/ documents; add test users/groups to this group to see them in the filtered search results"
+  value       = azuread_group.adls_acl_group.object_id
 }
 
 output "REDIS_HOSTNAME" {
   description = "Hostname of the Managed Redis instance used as the APIM external cache (sticky backend assignments)"
   value       = azurerm_managed_redis.a2a_cache.hostname
+}
+
+output "FOUNDRYIQ_ACL_MCP_APIM_URL" {
+  description = "APIM-fronted MCP endpoint of the foundryiq-acl-mcp Function (Authorization: audience https://search.azure.com)"
+  value       = "${data.azurerm_api_management.apim.gateway_url}/${module.foundryiq_acl_mcp_api.api_path}/runtime/webhooks/mcp"
 }
 
 output "VERIFY_PROJECT_ENDPOINTS" {
