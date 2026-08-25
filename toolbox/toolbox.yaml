@@ -11,7 +11,7 @@
 # 更新時 (接続を追加/変更した場合):
 #   azd ai toolbox create toolbox --from-file toolbox/toolbox.yaml
 #   azd ai toolbox publish toolbox <version>   # 新バージョンを default に昇格
-description: Toolbox bundling foundryiq-acl-mcp via APIM and logicmcp
+description: Toolbox bundling various tools (MCP, A2A, etc.) into a single MCP endpoint
 connections:
   - name: foundryiqmcp
   - name: logicmcp

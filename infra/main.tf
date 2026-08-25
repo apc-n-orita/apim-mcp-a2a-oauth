@@ -1290,6 +1290,26 @@ module "apim_a2a_agent" {
   depends_on = [azurerm_api_management_redis_cache.a2a_external_cache]
 }
 
+
+module "apim_toolbox" {
+  source = "./modules/gateway/apim-api/toolbox"
+
+  resource_group_name      = var.resource_group_name
+  api_management_name      = data.azurerm_api_management.apim.name
+  api_management_id        = data.azurerm_api_management.apim.id
+  api_management_logger_id = local.apim_logger_id
+
+  toolbox_name          = "toolbox"
+  project_name          = "toolbox-project"
+  foundry_backend_names = [for k, v in module.ai_foundry : v.name]
+  tenant_id             = data.azuread_client_config.current.tenant_id
+
+  diagnostic_sampling_percentage = 100.0
+
+  # Toolbox Product ポリシーが external キャッシュ (Redis) を前提とするため
+  depends_on = [azurerm_api_management_redis_cache.a2a_external_cache]
+}
+
 # ------------------------------------------------------------------------------------------------------
 # 検証用プロジェクト (APIM 経由の A2A 呼び出し検証。ai_foundry["0"] 内に 2 つ作成)
 # - with-approle    : プロジェクトのシステム割り当て MI に tartaria-agent の App Role を割り当て → APIM ポリシーを通過できる

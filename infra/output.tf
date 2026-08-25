@@ -53,6 +53,11 @@ output "FOUNDRYIQ_ACL_MCP_APIM_URL" {
   value       = "${data.azurerm_api_management.apim.gateway_url}/${module.foundryiq_acl_mcp_api.api_path}/runtime/webhooks/mcp"
 }
 
+output "TOOLBOX_APIM_URL" {
+  description = "APIM-fronted toolbox MCP endpoint (oid-sticky load balanced across Foundry backends; client Authorization token is passed through unchanged to preserve foundryiqmcp's UserEntraToken OBO)"
+  value       = "${data.azurerm_api_management.apim.gateway_url}/${module.apim_toolbox.api_path}${module.apim_toolbox.mcp_uri_template}?api-version=v1"
+}
+
 output "TOOLBOX_PROJECT_ENDPOINTS" {
   description = "Endpoints of the toolbox-project projects (foundryiqmcp / logicmcp connections). Use with `azd ai project set <endpoint>` before `azd ai toolbox create --from-file infra/toolbox.yaml`"
   value       = { for k, v in azapi_resource.toolbox_project : k => "https://${module.ai_foundry[k].name}.services.ai.azure.com/api/projects/${v.name}" }
