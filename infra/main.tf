@@ -337,6 +337,200 @@ resource "azapi_resource" "conn_foundryiq" {
   }
 }
 
+resource "azapi_resource" "toolbox_project" {
+  for_each                  = module.ai_foundry
+  type                      = "Microsoft.CognitiveServices/accounts/projects@2025-06-01"
+  name                      = "toolbox-project"
+  parent_id                 = each.value.ai_foundry_id
+  location                  = each.value.location
+  schema_validation_enabled = false
+  body = {
+    sku = {
+      name = "S0"
+    }
+    identity = {
+      type = "SystemAssigned"
+    }
+    properties = {
+      displayName = "toolbox-project"
+      description = "A project for the Foundry Toolbox (foundryiqmcp / logicmcp connections)"
+    }
+  }
+  response_export_values = [
+    "identity.principalId"
+  ]
+}
+
+resource "azurerm_role_assignment" "current_user_toolbox_project_foundry_user" {
+  for_each             = azapi_resource.toolbox_project
+  scope                = each.value.id
+  role_definition_name = "Foundry User"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+## Wait 10 seconds for the toolbox-project system-assigned managed identity to be created and to replicate
+resource "time_sleep" "wait_toolbox_project_identities" {
+  for_each = azapi_resource.toolbox_project
+  depends_on = [
+    azapi_resource.toolbox_project
+  ]
+  create_duration = "10s"
+}
+
+resource "azurerm_role_assignment" "toolbox_project_foundry_user" {
+  for_each             = azapi_resource.toolbox_project
+  scope                = each.value.id
+  role_definition_name = "Foundry User"
+  principal_id         = each.value.output.identity.principalId
+  depends_on           = [time_sleep.wait_toolbox_project_identities]
+}
+
+resource "azurerm_role_assignment" "toolbox_project_monitoring_metrics_publisher" {
+  for_each             = azapi_resource.toolbox_project
+  depends_on           = [time_sleep.wait_toolbox_project_identities]
+  scope                = data.azurerm_application_insights.appi.id
+  role_definition_name = "Monitoring Metrics Publisher"
+  principal_id         = each.value.output.identity.principalId
+}
+
+resource "azurerm_role_assignment" "toolbox_project_appinsights_reader" {
+  for_each             = azapi_resource.toolbox_project
+  depends_on           = [time_sleep.wait_toolbox_project_identities]
+  scope                = data.azurerm_application_insights.appi.id
+  role_definition_name = "Reader"
+  principal_id         = each.value.output.identity.principalId
+}
+
+# Application Insights 接続 (既存 Application Insights を利用。ai_foundry_project の conn_appi と同じ構成)
+resource "azapi_resource" "conn_toolbox_appi" {
+  for_each = azapi_resource.toolbox_project
+  type     = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
+  # 接続名は Foundry アカウント内 (全プロジェクト横断) で一意である必要があるため、ai-foundry-project の
+  # appi-connection とは別名にする
+  name                      = "toolbox-appi-connection"
+  parent_id                 = each.value.id
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      category      = "AppInsights"
+      target        = data.azurerm_application_insights.appi.id
+      authType      = "ApiKey"
+      isSharedToAll = false
+      group         = "ServicesAndApps"
+      isDefault     = true
+      peRequirement = "NotRequired"
+      peStatus      = "NotApplicable"
+      credentials = {
+        key = data.azurerm_application_insights.appi.connection_string
+      }
+      useWorkspaceManagedIdentity = false
+      metadata = {
+        ApiType    = "Azure"
+        ResourceId = data.azurerm_application_insights.appi.id
+      }
+    }
+  }
+}
+
+# apim-mcp-oauth の共有 Entra ID アプリ (mcp-oauth-app) 用のクライアントシークレット。
+# logicmcp 接続の oauth2 (bring-your-own app registration) 認証で使用する。
+resource "azuread_application_password" "mcp_oauth_oauthpass" {
+  application_id = data.azuread_application.mcp_oauth.id
+  display_name   = "toolbox-logicmcp-${local.resource_token}"
+}
+
+resource "azapi_resource" "conn_foundryiqmcp" {
+  for_each                  = azapi_resource.toolbox_project
+  type                      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
+  name                      = "foundryiqmcp"
+  parent_id                 = each.value.id
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      authType      = "OAuth2"
+      category      = "RemoteTool"
+      group         = "GenericProtocol"
+      isDefault     = false
+      isSharedToAll = false
+      peRequirement = "NotRequired"
+      peStatus      = "NotApplicable"
+      metadata = {
+        type          = "custom_MCP"
+        oAuthProvider = "custom"
+      }
+      target                      = "${data.azurerm_api_management.apim.gateway_url}/${module.foundryiq_acl_mcp_api.api_path}/runtime/webhooks/mcp"
+      useWorkspaceManagedIdentity = false
+      useCustomConnector          = false
+      authorizationUrl            = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/oauth2/v2.0/authorize"
+      tokenUrl                    = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/oauth2/v2.0/token"
+      refreshUrl                  = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/oauth2/v2.0/token"
+      scopes                      = ["https://search.azure.com/user_impersonation", "offline_access"]
+      credentials = {
+        clientId     = data.azuread_application.mcp_oauth.client_id
+        clientSecret = azuread_application_password.mcp_oauth_oauthpass.value
+      }
+    }
+  }
+
+  response_export_values = [
+    "properties.redirectUrl"
+  ]
+
+  depends_on = [module.foundryiq_acl_mcp_api]
+}
+
+resource "azapi_resource" "conn_logicmcp" {
+  for_each                  = azapi_resource.toolbox_project
+  type                      = "Microsoft.CognitiveServices/accounts/projects/connections@2025-04-01-preview"
+  name                      = "logicmcp"
+  parent_id                 = each.value.id
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      authType      = "OAuth2"
+      category      = "RemoteTool"
+      group         = "GenericProtocol"
+      isDefault     = false
+      isSharedToAll = false
+      peRequirement = "NotRequired"
+      peStatus      = "NotApplicable"
+      metadata = {
+        type          = "custom_MCP"
+        oAuthProvider = "custom"
+      }
+      # apim-mcp-oauth 側 la_mcp_api モジュールの mcp_api_uri_template = "/api/mcpservers/projects/mcp" をそのまま踏襲
+      target                      = "${data.azurerm_api_management.apim.gateway_url}/${var.logicmcp_api_name}/api/mcpservers/projects/mcp"
+      useWorkspaceManagedIdentity = false
+      useCustomConnector          = false
+      authorizationUrl            = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/oauth2/v2.0/authorize"
+      tokenUrl                    = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/oauth2/v2.0/token"
+      refreshUrl                  = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/oauth2/v2.0/token"
+      scopes                      = ["api://${data.azuread_application.mcp_oauth.client_id}/user_impersonation", "offline_access"]
+      credentials = {
+        clientId     = data.azuread_application.mcp_oauth.client_id
+        clientSecret = azuread_application_password.mcp_oauth_oauthpass.value
+      }
+    }
+  }
+
+  response_export_values = [
+    "properties.redirectUrl"
+  ]
+}
+
+resource "azuread_application_redirect_uris" "mcp_oauth_web" {
+  application_id = data.azuread_application.mcp_oauth.id
+  type           = "Web"
+
+  redirect_uris = concat(
+    [for k, v in azapi_resource.conn_foundryiqmcp : v.output.properties.redirectUrl],
+    [for k, v in azapi_resource.conn_logicmcp : v.output.properties.redirectUrl]
+  )
+}
+
 # ------------------------------------------------------------------------------------------------------
 # Foundry IQ (タルタリアナレッジ) — msfoundry-docsacl-apim の acl_off 版
 # ------------------------------------------------------------------------------------------------------

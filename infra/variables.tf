@@ -81,6 +81,11 @@ variable "tpm_limit_token" {
   default     = 30000
 }
 
+variable "logicmcp_api_name" {
+  description = "apim-mcp-oauth 側の logicappmcp (la_mcp, Logic App) の APIM 上のAPI名/パス (toolbox の logicmcp 接続の target に使用)"
+  type        = string
+}
+
 variable "knowledge_reasoning_effort" {
   description = "Retrieval reasoning effort for Knowledge Base. Valid values: minimal, low, medium"
   type        = string

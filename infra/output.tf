@@ -53,6 +53,11 @@ output "FOUNDRYIQ_ACL_MCP_APIM_URL" {
   value       = "${data.azurerm_api_management.apim.gateway_url}/${module.foundryiq_acl_mcp_api.api_path}/runtime/webhooks/mcp"
 }
 
+output "TOOLBOX_PROJECT_ENDPOINTS" {
+  description = "Endpoints of the toolbox-project projects (foundryiqmcp / logicmcp connections). Use with `azd ai project set <endpoint>` before `azd ai toolbox create --from-file infra/toolbox.yaml`"
+  value       = { for k, v in azapi_resource.toolbox_project : k => "https://${module.ai_foundry[k].name}.services.ai.azure.com/api/projects/${v.name}" }
+}
+
 output "VERIFY_PROJECT_ENDPOINTS" {
   description = "Endpoints of the verification projects (a2a-caller agent calls tartaria-agent via the APIM A2A endpoint; with-approle passes the APIM policy, without-approle gets 403)"
   value       = { for k, v in azapi_resource.verify_project : k => "https://${module.ai_foundry["0"].name}.services.ai.azure.com/api/projects/${v.name}" }
