@@ -31,6 +31,7 @@
 | <a name="module_ai_search"></a> [ai\_search](#module\_ai\_search) | ./modules/ai/aisearch | n/a |
 | <a name="module_apim_a2a_agent"></a> [apim\_a2a\_agent](#module\_apim\_a2a\_agent) | ./modules/gateway/apim-api/a2a-agent | n/a |
 | <a name="module_apim_api_openai"></a> [apim\_api\_openai](#module\_apim\_api\_openai) | ./modules/gateway/apim-api/openai | n/a |
+| <a name="module_apim_toolbox"></a> [apim\_toolbox](#module\_apim\_toolbox) | ./modules/gateway/apim-api/toolbox | n/a |
 | <a name="module_foundryiq_acl_mcp"></a> [foundryiq\_acl\_mcp](#module\_foundryiq\_acl\_mcp) | ./modules/app/function/app | n/a |
 | <a name="module_foundryiq_acl_mcp_api"></a> [foundryiq\_acl\_mcp\_api](#module\_foundryiq\_acl\_mcp\_api) | ./modules/gateway/apim-api/foundryiq-acl-mcp | n/a |
 | <a name="module_foundryiq_acl_mcp_plan"></a> [foundryiq\_acl\_mcp\_plan](#module\_foundryiq\_acl\_mcp\_plan) | ./modules/host/appserviceplan | n/a |
@@ -44,14 +45,20 @@
 | [azapi_resource.ai_foundry_project](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.conn_appi](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.conn_foundryiq](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.conn_foundryiqmcp](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.conn_logicmcp](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.conn_tartaria_a2a](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.conn_toolbox_appi](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.toolbox_project](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.verify_project](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azuread_app_role_assignment.tartaria_agent_current_user](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/app_role_assignment) | resource |
 | [azuread_app_role_assignment.verify_project_tartaria_role](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/app_role_assignment) | resource |
 | [azuread_application.a2a_agent](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/application) | resource |
 | [azuread_application_identifier_uri.a2a_agent_uri](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/application_identifier_uri) | resource |
+| [azuread_application_password.mcp_oauth_oauthpass](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/application_password) | resource |
 | [azuread_application_permission_scope.user_impersonation](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/application_permission_scope) | resource |
 | [azuread_application_pre_authorized.a2a_agent](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/application_pre_authorized) | resource |
+| [azuread_application_redirect_uris.mcp_oauth_web](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/application_redirect_uris) | resource |
 | [azuread_group.adls_acl_group](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/group) | resource |
 | [azuread_service_principal.a2a_agent_sp](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/service_principal) | resource |
 | [azurecaf_name.storage_name](https://registry.terraform.io/providers/aztfmod/azurecaf/latest/docs/resources/name) | resource |
@@ -71,11 +78,15 @@
 | [azurerm_role_assignment.current_user_search_service_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.current_user_storage_blob_data_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.current_user_storage_blob_data_owner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_role_assignment.current_user_toolbox_project_foundry_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.current_user_verify_project_foundry_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.foundryiq_acl_mcp_search_index_data_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.foundryiq_acl_mcp_storage_blob_data_owner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.foundryiq_acl_mcp_storage_queue_data_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.foundryiq_acl_mcp_storage_table_data_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_role_assignment.toolbox_project_appinsights_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_role_assignment.toolbox_project_foundry_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
+| [azurerm_role_assignment.toolbox_project_monitoring_metrics_publisher](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_storage_blob.docs](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_blob) | resource |
 | [azurerm_storage_data_lake_gen2_filesystem.ais_docs](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_data_lake_gen2_filesystem) | resource |
 | [azurerm_storage_data_lake_gen2_path.tartarian](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_data_lake_gen2_path) | resource |
@@ -90,6 +101,7 @@
 | [random_uuid.tartaria_agent_role](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/uuid) | resource |
 | [random_uuid.user_impersonation_scope_id](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/uuid) | resource |
 | [time_sleep.wait_project_identities](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
+| [time_sleep.wait_toolbox_project_identities](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [time_sleep.wait_verify_project_identities](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [azuread_application.mcp_oauth](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/application) | data source |
 | [azuread_client_config.current](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/client_config) | data source |
@@ -111,6 +123,7 @@
 | <a name="input_environment_name"></a> [environment\_name](#input\_environment\_name) | The name of the azd environment to be deployed | `string` | n/a | yes |
 | <a name="input_location"></a> [location](#input\_location) | The supported Azure location where the resource deployed | `string` | n/a | yes |
 | <a name="input_log_analytics_workspace_name"></a> [log\_analytics\_workspace\_name](#input\_log\_analytics\_workspace\_name) | Existing Log Analytics Workspace used for diagnostic settings of the newly created resources | `string` | n/a | yes |
+| <a name="input_logicmcp_api_name"></a> [logicmcp\_api\_name](#input\_logicmcp\_api\_name) | apim-mcp-oauth 側の logicappmcp (la\_mcp, Logic App) の APIM 上のAPI名/パス (toolbox の logicmcp 接続の target に使用) | `string` | n/a | yes |
 | <a name="input_openai_chat"></a> [openai\_chat](#input\_openai\_chat) | OpenAI Chat model configuration | <pre>object({<br/>    model_name    = string<br/>    model_version = string<br/>    deploy_type   = string<br/>    capacity      = number<br/>  })</pre> | n/a | yes |
 | <a name="input_openai_embedding"></a> [openai\_embedding](#input\_openai\_embedding) | OpenAI Embedding model configuration | <pre>object({<br/>    model_name    = string<br/>    model_version = string<br/>    deploy_type   = string<br/>    capacity      = number<br/>  })</pre> | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Existing resource group containing the APIM / Application Insights / Log Analytics Workspace. Newly created resources are also placed here. | `string` | n/a | yes |
@@ -134,5 +147,7 @@
 | <a name="output_FOUNDRY_PROJECT_ENDPOINTS"></a> [FOUNDRY\_PROJECT\_ENDPOINTS](#output\_FOUNDRY\_PROJECT\_ENDPOINTS) | Endpoints of the AI Foundry projects hosting the tartaria-agent |
 | <a name="output_REDIS_HOSTNAME"></a> [REDIS\_HOSTNAME](#output\_REDIS\_HOSTNAME) | Hostname of the Managed Redis instance used as the APIM external cache (sticky backend assignments) |
 | <a name="output_SEARCH_SERVICE_NAME"></a> [SEARCH\_SERVICE\_NAME](#output\_SEARCH\_SERVICE\_NAME) | Name of the Azure AI Search service hosting the Foundry IQ knowledge base |
+| <a name="output_TOOLBOX_APIM_URL"></a> [TOOLBOX\_APIM\_URL](#output\_TOOLBOX\_APIM\_URL) | APIM-fronted toolbox MCP endpoint (oid-sticky load balanced across Foundry backends; client Authorization token is passed through unchanged to preserve foundryiqmcp's UserEntraToken OBO) |
+| <a name="output_TOOLBOX_PROJECT_ENDPOINTS"></a> [TOOLBOX\_PROJECT\_ENDPOINTS](#output\_TOOLBOX\_PROJECT\_ENDPOINTS) | Endpoints of the toolbox-project projects (foundryiqmcp / logicmcp connections). Use with `azd ai project set <endpoint>` before `azd ai toolbox create --from-file infra/toolbox.yaml` |
 | <a name="output_VERIFY_PROJECT_ENDPOINTS"></a> [VERIFY\_PROJECT\_ENDPOINTS](#output\_VERIFY\_PROJECT\_ENDPOINTS) | Endpoints of the verification projects (a2a-caller agent calls tartaria-agent via the APIM A2A endpoint; with-approle passes the APIM policy, without-approle gets 403) |
 <!-- END_TF_DOCS -->
