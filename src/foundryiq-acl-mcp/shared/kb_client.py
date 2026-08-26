@@ -76,6 +76,14 @@
   SEARCH_READ_TIMEOUT     既定 60 秒
     SEARCH_RETRY_TOTAL      既定 0 回
   SEARCH_MAX_RUNTIME      既定 50 秒 (サーバー側の実行時間上限)
+  SEARCH_MAX_OUTPUT_DOCUMENTS 既定 10 (grounding data に含める上限ドキュメント数)
+  SEARCH_MAX_OUTPUT_SIZE      既定 6000 (grounding data の上限文字数)
+  SEARCH_RETRIEVAL_REASONING_EFFORT 既定 "low"。"minimal" / "low" / "medium" のいずれか。
+      minimal : ソース選択・クエリプランニング・反復検索を一切行わない
+                (reasoning_tokens を最小に抑えられるが再現率も下がる)
+      low     : 軽い reasoning (既定)
+      medium  : SDK が本来既定として想定する reasoning。reasoning_tokens が増える
+    参考: https://learn.microsoft.com/azure/search/agentic-retrieval-overview#availability-and-pricing
 """
 
 import logging
@@ -85,6 +93,9 @@ from azure.identity import DefaultAzureCredential
 from azure.search.documents.knowledgebases import KnowledgeBaseRetrievalClient
 from azure.search.documents.knowledgebases.models import (
     KnowledgeBaseRetrievalRequest,
+    KnowledgeRetrievalLowReasoningEffort,
+    KnowledgeRetrievalMediumReasoningEffort,
+    KnowledgeRetrievalMinimalReasoningEffort,
     KnowledgeRetrievalOutputMode,
     KnowledgeRetrievalSemanticIntent,
 )
@@ -107,6 +118,29 @@ SEARCH_RETRY_TOTAL = int(os.getenv("SEARCH_RETRY_TOTAL", "0"))
 # どこで時間を使ったかを追える。クライアント側タイムアウトはソケットを
 # 切るだけなので、応答本文も activity も失われる。
 SEARCH_MAX_RUNTIME = int(os.getenv("SEARCH_MAX_RUNTIME", "50"))
+
+# retrieve() の応答に含める grounding data の上限。
+# max_output_documents はドキュメント (チャンク) 件数、max_output_size は
+# 応答全体の文字数上限。大きくすると呼び出しトークン (answer synthesis /
+# MCP 呼び出し元) が増えるため、既定値は SDK 側の推奨値に合わせている。
+SEARCH_MAX_OUTPUT_DOCUMENTS = int(os.getenv("SEARCH_MAX_OUTPUT_DOCUMENTS", "10"))
+SEARCH_MAX_OUTPUT_SIZE = int(os.getenv("SEARCH_MAX_OUTPUT_SIZE", "6000"))
+
+# retrieval の reasoning effort (Azure AI Search 側の課金・reasoning_tokens に影響)。
+# キーは SDK の discriminator 値 ("minimal"/"low"/"medium") と揃える。
+# 既定を "low" にしているのは、SDK/サーバー既定の "medium" だと
+# reasoning_tokens が数万単位になり課金・レイテンシへの影響が大きいため。
+_REASONING_EFFORT_CLASSES = {
+    "minimal": KnowledgeRetrievalMinimalReasoningEffort,
+    "low": KnowledgeRetrievalLowReasoningEffort,
+    "medium": KnowledgeRetrievalMediumReasoningEffort,
+}
+SEARCH_RETRIEVAL_REASONING_EFFORT = os.getenv("SEARCH_RETRIEVAL_REASONING_EFFORT", "low").strip().lower()
+if SEARCH_RETRIEVAL_REASONING_EFFORT not in _REASONING_EFFORT_CLASSES:
+    raise ValueError(
+        "SEARCH_RETRIEVAL_REASONING_EFFORT must be one of "
+        f"{sorted(_REASONING_EFFORT_CLASSES)}, got {SEARCH_RETRIEVAL_REASONING_EFFORT!r}"
+    )
 
 # サービス資格情報とクライアントはモジュールスコープで保持する。
 # azure-identity 側でトークンをキャッシュするため、呼び出しごとの生成は避ける。
@@ -170,12 +204,17 @@ def _build_request(query: str) -> KnowledgeBaseRetrievalRequest:
     から、それぞれリクエストオブジェクト側へ移動した。ナレッジベース定義側に
     設定項目が無いため、指定しなければサーバー既定のままになる。
     参考: https://learn.microsoft.com/azure/search/agentic-retrieval-how-to-migrate
+
+    retrieval_reasoning_effort も常に明示する。省略するとサーバー既定 (medium相当)
+    になり、agentic reasoning の reasoning_tokens (Azure AI Search 側の課金) が
+    増えるため、SEARCH_RETRIEVAL_REASONING_EFFORT (既定 low) を毎回指定する。
     """
     return KnowledgeBaseRetrievalRequest(
         intents=[KnowledgeRetrievalSemanticIntent(search=query)],
         output_mode=KnowledgeRetrievalOutputMode.EXTRACTIVE_DATA,
-        max_output_documents=10,
-        max_output_size=6000,
+        max_output_documents=SEARCH_MAX_OUTPUT_DOCUMENTS,
+        max_output_size=SEARCH_MAX_OUTPUT_SIZE,
+        retrieval_reasoning_effort=_REASONING_EFFORT_CLASSES[SEARCH_RETRIEVAL_REASONING_EFFORT](),
         # activity 配列が無いとトークン消費も 206 部分失敗も追跡できなくなる。
         # サーバー既定に依存させず、常に要求する。
         include_activity=True,
