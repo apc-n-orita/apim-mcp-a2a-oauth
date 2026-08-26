@@ -1310,6 +1310,23 @@ module "apim_toolbox" {
   depends_on = [azurerm_api_management_redis_cache.a2a_external_cache]
 }
 
+/*
+# toolbox API (audience=https://ai.azure.com/) 向けの OAuth 2.0 Protected Resource Metadata。
+# apim-mcp-oauth 側の既存 oauth API (mcp-oauth-app の scope を返す) と同じ name/path="" を使うため、
+# apply 前に apim-mcp-oauth 側の oauth API を削除しておくこと (このリポジトリ側に一本化する)。
+module "apim_oauth" {
+  source                   = "./modules/gateway/apim-api/oauth-api"
+  resource_group_name      = var.resource_group_name
+  api_management_name      = data.azurerm_api_management.apim.name
+  api_management_logger_id = local.apim_logger_id
+  apim_gateway_url         = data.azurerm_api_management.apim.gateway_url
+  tenant_id                = data.azuread_client_config.current.tenant_id
+  scope                    = "https://ai.azure.com/.default"
+
+  diagnostic_sampling_percentage = 100.0
+}
+*/
+
 # ------------------------------------------------------------------------------------------------------
 # 検証用プロジェクト (APIM 経由の A2A 呼び出し検証。ai_foundry["0"] 内に 2 つ作成)
 # - with-approle    : プロジェクトのシステム割り当て MI に tartaria-agent の App Role を割り当て → APIM ポリシーを通過できる

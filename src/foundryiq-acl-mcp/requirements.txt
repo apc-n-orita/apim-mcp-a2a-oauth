@@ -25,8 +25,8 @@ opentelemetry-sdk==1.39.0
 # プレリリース版を厳密に指定する。安定版 12.0.0 では以下が成立しない:
 #   - retrieve() に query_source_authorization パラメータが無く、
 #     渡しても **kwargs に吸われて黙って無視される (ACL が効かないまま動く)
-#   - api_version の既定が 2026-04-01 で、answerSynthesis が使えない
-# 12.1.0b1 は既定が 2026-05-01-preview で、ACL パラメータを持つ。
+# 12.1.0b1 は既定が 2026-05-01-preview で、ACL パラメータと
+# intents / extractiveData のリクエストモデルを持つ。
 #
 # バージョンを厳密に指定しているため pip の --pre は不要
 # (要件指定子がプレリリースを明示している場合、pip はそれを許可する)。

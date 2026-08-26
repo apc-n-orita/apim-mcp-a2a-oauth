@@ -37,41 +37,17 @@ TOOL_NAME = "foundryiq_knowledge_retrieve"
 # 引数ごとに重ねて指定できる。
 # is_required の既定は True。ドキュメントは「既定は任意」と書いているが
 # Python デコレータ側は追随していないため、任意/必須のどちらも明示する。
-#
-# 引数の並びは funcmcp の (message, ctx) と異なり ctx を先に置いている。
-# is_required=False の system_instructions に Python のデフォルト値が必要で、
-# デフォルト値付き引数より後ろにデフォルト無しの ctx は置けないため。
-# ctx の型注釈は funcmcp と同じく func.MCPToolContext のまま。
-# (mcp_tool の wrapper は型注釈で ctx を判別し、引数はすべてキーワードで渡すため
-#  並び順は結果に影響しない。)
 @bp.mcp_tool()
 @bp.mcp_tool_property(
     arg_name="query",
     description=(
-        "One complete question in natural language. Keep distinctive tokens verbatim: "
-        "proper nouns, acronyms, identifiers, quoted phrases, version strings, and any "
-        "date or range constraints. Do not rewrite into keyword search syntax."
+        "One narrowly scoped natural-language search query. For multiple concepts or "
+        "comparisons, invoke this tool separately for each concept. Keep proper nouns, "
+        "acronyms, identifiers, quoted phrases, version strings, and date constraints verbatim."
     ),
     is_required=True,
 )
-# system_instructions の効き方はナレッジベース定義の outputMode に依存する。
-#   answerSynthesis : 回答生成に効く (引用の付け方、該当なし時の文言など)
-#   extractiveData  : 回答生成が無いため、クエリプランニングにしか効かない
-# 下の description は answerSynthesis を前提に書いてある。KB 側のモードを
-# 切り替えるときは、この文言も合わせて見直すこと。放置するとエージェントが
-# 効果のない指示を送り続ける。
-@bp.mcp_tool_property(
-    arg_name="system_instructions",
-    description=(
-        "Optional grounding instructions for the retrieval engine, for example how to "
-        "cite ref_id values or what to answer when nothing is found. Leave empty to use "
-        "the knowledge base defaults."
-    ),
-    is_required=False,
-)
-def foundryiq_knowledge_retrieve(
-    query: str, ctx: func.MCPToolContext, system_instructions: str = ""
-) -> str:
+def foundryiq_knowledge_retrieve(query: str, ctx: func.MCPToolContext) -> str:
     """Search the Foundry IQ knowledge base for authoritative, source-attributable content.
 
     Results are trimmed to what the calling user is permitted to see, based on the
@@ -120,7 +96,7 @@ def foundryiq_knowledge_retrieve(
         span.set_attribute("kb.name", kb_client.KNOWLEDGE_BASE_NAME)
 
         try:
-            text = kb_client.retrieve(query, system_instructions or "", user_token, span)
+            text = kb_client.retrieve(query, user_token, span)
             span.set_attribute("mcp.tool.success", True)
             if not text:
                 span.set_attribute("kb.empty_response", True)

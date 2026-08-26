@@ -65,11 +65,8 @@
     SEARCH_READ_TIMEOUT (60): サーバーが応答すらしない異常時の最後の砦
   前者を短くしておかないと、常にソケット切断が先に起きて activity ログを失う。
 
-  最悪ケースは read 60 秒 × 3 回 (初回 + リトライ 2 回) + バックオフ 1.6 秒で
-  約 182 秒。HTTP トリガーには 230 秒の応答上限 (Azure Load Balancer の
-  アイドルタイムアウト) があるため、値を伸ばすときはここを超えないこと。
-  なお Search が max_runtime を守って応答する限りリトライは発生しないため、
-  この最悪ケースはサーバーが完全に無応答のときに限られる。
+    リトライは行わない。Search 側の失敗を再試行すると MCP クライアントの
+    100 秒タイムアウトを超えるため、初回のエラーを呼び出し元へ返す。
 
 環境変数:
   SEARCH_ENDPOINT         https://<service>.search.windows.net
@@ -77,7 +74,7 @@
   SEARCH_API_VERSION      既定 2026-05-01-preview
   SEARCH_CONNECT_TIMEOUT  既定 10 秒
   SEARCH_READ_TIMEOUT     既定 60 秒
-  SEARCH_RETRY_TOTAL      既定 2 回
+    SEARCH_RETRY_TOTAL      既定 0 回
   SEARCH_MAX_RUNTIME      既定 50 秒 (サーバー側の実行時間上限)
 """
 
@@ -87,9 +84,9 @@ import os
 from azure.identity import DefaultAzureCredential
 from azure.search.documents.knowledgebases import KnowledgeBaseRetrievalClient
 from azure.search.documents.knowledgebases.models import (
-    KnowledgeBaseMessage,
-    KnowledgeBaseMessageTextContent,
     KnowledgeBaseRetrievalRequest,
+    KnowledgeRetrievalOutputMode,
+    KnowledgeRetrievalSemanticIntent,
 )
 
 _logger = logging.getLogger(__name__)
@@ -103,7 +100,7 @@ SEARCH_API_VERSION = os.getenv("SEARCH_API_VERSION", "2026-05-01-preview")
 # 渡しても効くが、呼び出し側で明示したほうが「どの操作に効く値か」が読める。
 SEARCH_CONNECT_TIMEOUT = float(os.getenv("SEARCH_CONNECT_TIMEOUT", "10"))
 SEARCH_READ_TIMEOUT = float(os.getenv("SEARCH_READ_TIMEOUT", "60"))
-SEARCH_RETRY_TOTAL = int(os.getenv("SEARCH_RETRY_TOTAL", "2"))
+SEARCH_RETRY_TOTAL = int(os.getenv("SEARCH_RETRY_TOTAL", "0"))
 
 # サーバー側の実行時間上限。SEARCH_READ_TIMEOUT より短くすること。
 # 先に Search 側が切り上げれば正規のレスポンスが返り、activity ログから
@@ -155,20 +152,18 @@ def _get_client(kb_name: str) -> KnowledgeBaseRetrievalClient:
     return _clients[kb_name]
 
 
-def _build_request(query: str, system_instructions: str) -> KnowledgeBaseRetrievalRequest:
+def _build_request(query: str) -> KnowledgeBaseRetrievalRequest:
     """retrieve のリクエストを組み立てる
 
-    messages は chat 形式。assistant ロールに指示、user ロールに質問を入れる。
+    intent はクエリをモデルによる分解なしで検索エンジンへ渡す。
 
     knowledge_source_params は指定しない。ナレッジソースの絞り込みは
     ナレッジベース定義側の責務であり、こちらで指定するとソース種別ごとに
     異なるパラメータクラス (SearchIndex / Web / AzureBlob / RemoteSharePoint など)
     を選ぶ必要が生じ、種別を取り違えると実行時に失敗する。
 
-    output_mode も指定しない。ナレッジベース定義側の設定を唯一の正とし、
-    モードの切り替えを再デプロイなしで行えるようにするため。
-    _extract_response_text は extractiveData / answerSynthesis の
-    どちらでも動くので、コード側の分岐は不要。
+    output_mode は extractiveData に固定する。MCP 呼び出し側が grounding data を
+    使って回答を構成するため、Knowledge Base 側では回答合成を行わない。
 
     逆に include_activity と max_runtime_in_seconds はここでしか指定できない。
     2026-05-01-preview で、前者は outputConfiguration から、後者は requestLimits
@@ -176,22 +171,11 @@ def _build_request(query: str, system_instructions: str) -> KnowledgeBaseRetriev
     設定項目が無いため、指定しなければサーバー既定のままになる。
     参考: https://learn.microsoft.com/azure/search/agentic-retrieval-how-to-migrate
     """
-    messages = []
-    if system_instructions:
-        messages.append(
-            KnowledgeBaseMessage(
-                role="assistant",
-                content=[KnowledgeBaseMessageTextContent(text=system_instructions)],
-            )
-        )
-    messages.append(
-        KnowledgeBaseMessage(
-            role="user",
-            content=[KnowledgeBaseMessageTextContent(text=query)],
-        )
-    )
     return KnowledgeBaseRetrievalRequest(
-        messages=messages,
+        intents=[KnowledgeRetrievalSemanticIntent(search=query)],
+        output_mode=KnowledgeRetrievalOutputMode.EXTRACTIVE_DATA,
+        max_output_documents=10,
+        max_output_size=6000,
         # activity 配列が無いとトークン消費も 206 部分失敗も追跡できなくなる。
         # サーバー既定に依存させず、常に要求する。
         include_activity=True,
@@ -203,7 +187,7 @@ def _extract_response_text(result) -> str:
     """retrieve のレスポンスから grounding データ文字列を取り出す
 
     response[].content[].text は ref_id 付きのチャンクを JSON エンコードした文字列。
-    answerSynthesis 構成のナレッジベースでは合成済みの回答が入る。
+    extractiveData では、MCP 呼び出し側が回答を構成するための grounding data が入る。
     """
     parts = []
     for message in getattr(result, "response", None) or []:
@@ -311,7 +295,6 @@ def _log_activity(result, kb_name: str, span) -> None:
 
 def retrieve(
     query: str,
-    system_instructions: str,
     user_token: str,
     span,
     kb_name: str = "",
@@ -329,7 +312,7 @@ def retrieve(
     結果が無い場合は空文字を返し、呼び出し元の応答文言はここでは決めない。
     """
     kb_name = kb_name or KNOWLEDGE_BASE_NAME
-    request = _build_request(query, system_instructions)
+    request = _build_request(query)
 
     # パラメータ名は query_source_authorization (x_ms_ 接頭辞は付かない)。
     # SDK 内部で x-ms-query-source-authorization ヘッダーに変換される。
