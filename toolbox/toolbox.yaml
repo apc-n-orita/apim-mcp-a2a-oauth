@@ -1,0 +1,19 @@
+# Foundry Toolbox 定義 (foundryiqmcp / logicmcp を束ねる MCP エンドポイント)
+#
+# 接続 (foundryiqmcp, logicmcp) は terraform (main.tf) で作成済みの project connection を参照するのみで、
+# ここでは資格情報を持たない。toolbox 自体は ARM リソースではないため terraform では作らず、
+# azd ai toolbox コマンドで作成する。
+#
+# 使い方 (toolbox-project ごと。terraform output TOOLBOX_PROJECT_ENDPOINTS で各エンドポイントを確認):
+#   azd ai project set <toolbox-project のエンドポイント>
+#   azd ai toolbox create toolbox --from-file toolbox/toolbox.yaml
+#
+# 更新時 (接続を追加/変更した場合):
+#   azd ai toolbox create toolbox --from-file toolbox/toolbox.yaml
+#   azd ai toolbox publish toolbox <version>   # 新バージョンを default に昇格
+description: Toolbox bundling various tools (MCP, A2A, etc.) into a single MCP endpoint
+connections:
+  - name: foundryiqmcp
+  - name: logicmcp
+tools:
+  - type: toolbox_search

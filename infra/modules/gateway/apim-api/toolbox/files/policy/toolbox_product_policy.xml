@@ -1,0 +1,100 @@
+<policies>
+	<inbound>
+		<base />
+		<!--
+      呼び出し元の Entra ID トークンを検証して oid を取得する。
+      a2a と異なり、toolbox 専用の App Role は存在しないため roles クレームのチェックは行わない
+      (audience の検証のみ。scope は https://ai.azure.com/.default で取得したトークンを想定)。
+    -->
+		<validate-azure-ad-token tenant-id="${tenant_id}" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized">
+			<audiences>
+				<audience>https://ai.azure.com/</audience>
+			</audiences>
+		</validate-azure-ad-token>
+		<set-variable name="oid" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("oid", ""))" />
+		<!--
+      ロードバランシング: assignedBackendId (AI Foundry アカウント名) を決定
+      Named Values:
+        {{toolbox-backends}}: カンマ区切りの AI Foundry アカウント名一覧 (1件でも動作)
+      a2a と同じ方式: oid → Redis キャッシュ → スティッキーバックエンド決定
+      (Redis キーは a2a と衝突しないよう "toolbox-backend-oid-" プレフィックスを使う)
+    -->
+		<cache-lookup-value key="@("toolbox-backend-oid-" + (string)context.Variables["oid"])" variable-name="assignedBackendId" default-value="" caching-type="external" />
+		<choose>
+			<when condition="@(string.IsNullOrEmpty((string)context.Variables["assignedBackendId"]))">
+				<set-variable name="assignedBackendId" value="@{
+          var id = (string)context.Variables["oid"];
+          var backends = "{{toolbox-backends}}"
+            .Split(',')
+            .Select(s => s.Trim())
+            .Where(s => !string.IsNullOrEmpty(s))
+            .ToArray();
+          byte[] hashBytes;
+          using (var md5 = System.Security.Cryptography.MD5.Create()) {
+            hashBytes = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(id));
+          }
+          int idx = (BitConverter.ToInt32(hashBytes, 0) & 0x7fffffff) % backends.Length;
+          return backends[idx];
+        }" />
+				<cache-store-value key="@("toolbox-backend-oid-" + (string)context.Variables["oid"])" value="@((string)context.Variables["assignedBackendId"])" duration="86400" caching-type="external" />
+			</when>
+		</choose>
+		<!--
+      バックエンド認証: クライアントの元トークンをそのままパススルーする (MSI には差し替えない)。
+      foundryiqmcp 接続の UserEntraToken (OBO) は、Foundry が受け取る Authorization ヘッダーが
+      「実際に呼び出したユーザー本人のトークン」であることを前提にしているため、a2a のように
+      APIM の MSI トークンへ上書きすると OBO が機能しなくなる。
+    -->
+		<!--
+      注意: set-backend-service は base-url 属性では上書きできない。
+      API 定義側の backendId が事実上 backend-id ベースの base ポリシーとして扱われるため、
+      上書きも backend-id 属性でなければ反映されない (base-url を使うと常に API 定義側の
+      既定バックエンドへ送られてしまう)。
+      参考: https://learn.microsoft.com/azure/api-management/set-backend-service-policy#usage
+    -->
+		<set-backend-service backend-id="@("toolbox-" + (string)context.Variables["assignedBackendId"])" />
+	</inbound>
+	<backend>
+		<!--
+      5xx / 429 発生時のリトライ＋フェイルオーバー戦略。 
+      試行 1〜3: 割り当て済みバックエンドでリトライ
+      試行 4   : 別バックエンドへフェイルオーバー (Redis も failover 先へ更新)
+    -->
+		<retry condition="@(context.Response == null || context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && context.Response.StatusCode <= 599))" count="3" interval="2" first-fast-retry="false">
+			<set-variable name="attempt-count" value="@(context.Variables.GetValueOrDefault<int>("attempt-count", 0) + 1)" />
+			<choose>
+				<!-- 試行 1〜3: 割り当て済みバックエンドを使用 -->
+				<when condition="@(context.Variables.GetValueOrDefault<int>("attempt-count") <= 3)">
+					<set-backend-service backend-id="@("toolbox-" + (string)context.Variables["assignedBackendId"])" />
+				</when>
+				<!-- 試行 4: リトライ全失敗 → 別バックエンドへフェイルオーバー -->
+				<otherwise>
+					<set-variable name="failoverBackendId" value="@{
+            var current = (string)context.Variables["assignedBackendId"];
+            var backends = "{{toolbox-backends}}"
+              .Split(',')
+              .Select(s => s.Trim())
+              .Where(s => !string.IsNullOrEmpty(s) && s != current)
+              .ToArray();
+            if (backends.Length == 0) { return current; }
+            byte[] hashBytes;
+            using (var md5 = System.Security.Cryptography.MD5.Create()) {
+              hashBytes = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(current + "-failover"));
+            }
+            int idx = (BitConverter.ToInt32(hashBytes, 0) & 0x7fffffff) % backends.Length;
+            return backends[idx];
+          }" />
+					<cache-store-value key="@("toolbox-backend-oid-" + (string)context.Variables["oid"])" value="@((string)context.Variables["failoverBackendId"])" duration="86400" caching-type="external" />
+					<set-backend-service backend-id="@("toolbox-" + (string)context.Variables["failoverBackendId"])" />
+				</otherwise>
+			</choose>
+			<forward-request buffer-request-body="true" />
+		</retry>
+	</backend>
+	<outbound>
+		<base />
+	</outbound>
+	<on-error>
+		<base />
+	</on-error>
+</policies>
