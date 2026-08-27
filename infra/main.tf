@@ -889,6 +889,9 @@ resource "null_resource" "provision_search_index_acl" {
     resource_uri         = local.aoai_resource_uri
     deployment_id        = var.openai_embedding.model_name
     model_name           = var.openai_embedding.model_name
+    # ハンズオン用途のため true。本番環境では ACL 用の内部識別子を検索結果に
+    # 露出させないよう false (スクリプト側の既定値) を使うこと。
+    acl_fields_retrievable = "true"
   }
 
   provisioner "local-exec" {
@@ -907,7 +910,8 @@ resource "null_resource" "provision_search_index_acl" {
         ${self.triggers.indexer_name} \
         ${self.triggers.resource_uri} \
         ${self.triggers.deployment_id} \
-        ${self.triggers.model_name}
+        ${self.triggers.model_name} \
+        ${self.triggers.acl_fields_retrievable}
     EOT
   }
 
@@ -1310,7 +1314,7 @@ module "apim_toolbox" {
   depends_on = [azurerm_api_management_redis_cache.a2a_external_cache]
 }
 
-/*
+
 # toolbox API (audience=https://ai.azure.com/) 向けの OAuth 2.0 Protected Resource Metadata。
 # apim-mcp-oauth 側の既存 oauth API (mcp-oauth-app の scope を返す) と同じ name/path="" を使うため、
 # apply 前に apim-mcp-oauth 側の oauth API を削除しておくこと (このリポジトリ側に一本化する)。
@@ -1325,7 +1329,6 @@ module "apim_oauth" {
 
   diagnostic_sampling_percentage = 100.0
 }
-*/
 
 # ------------------------------------------------------------------------------------------------------
 # 検証用プロジェクト (APIM 経由の A2A 呼び出し検証。ai_foundry["0"] 内に 2 つ作成)
