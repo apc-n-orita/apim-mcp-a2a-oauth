@@ -17,7 +17,7 @@
             <set-body>@{
                 return new JObject(
                     new JProperty("resource", "${apim_gateway_url}/${mcp_endpoint_path}${mcp_endpoint_query}"),
-                    new JProperty("authorization_servers", new JArray("https://login.microsoftonline.com/${tenant_id}/v2.0")),
+                    new JProperty("authorization_servers", new JArray("https://login.microsoftonline.com/{{EntraIDTenantId}}/v2.0")),
                     new JProperty("bearer_methods_supported", new JArray("header")),
                     new JProperty("scopes_supported", new JArray("${scope}"))
                 ).ToString();

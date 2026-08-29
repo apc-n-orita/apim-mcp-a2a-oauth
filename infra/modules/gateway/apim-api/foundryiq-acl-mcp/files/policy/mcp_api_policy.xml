@@ -9,7 +9,7 @@
 		<!-- 呼び出し元(エージェント/クライアント)が、ACL評価対象のユーザー本人としての
              search.azure.com スコープのトークンを持っていることを検証する。
              これは Function 呼び出しの認可であると同時に、そのままACL用のユーザー識別にもなる。 -->
-		<validate-azure-ad-token tenant-id="${tenant_id}" header-name="Authorization" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. Access token is missing or invalid">
+		<validate-azure-ad-token tenant-id="{{EntraIDTenantId}}" header-name="Authorization" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized. Access token is missing or invalid">
 			<audiences>
 				<audience>https://search.azure.com/</audience>
 			</audiences>

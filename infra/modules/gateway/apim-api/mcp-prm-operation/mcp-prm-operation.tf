@@ -38,7 +38,6 @@ resource "azurerm_api_management_api_operation_policy" "get" {
   resource_group_name = var.resource_group_name
   xml_content = templatefile("${path.module}/files/policy/mcp_prm_get_policy.xml", {
     apim_gateway_url   = var.apim_gateway_url
-    tenant_id          = var.tenant_id
     mcp_endpoint_path  = var.mcp_endpoint_path
     mcp_endpoint_query = var.mcp_endpoint_query
     scope              = var.scope

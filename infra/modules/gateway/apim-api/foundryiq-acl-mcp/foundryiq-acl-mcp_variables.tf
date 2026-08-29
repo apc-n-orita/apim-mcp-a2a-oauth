@@ -46,8 +46,3 @@ variable "diagnostic_sampling_percentage" {
   type        = number
   default     = 100.0
 }
-
-variable "tenant_id" {
-  description = "Microsoft Entra tenant ID used to validate the inbound Authorization token"
-  type        = string
-}

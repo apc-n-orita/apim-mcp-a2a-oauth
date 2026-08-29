@@ -34,11 +34,6 @@ variable "apim_gateway_url" {
   type        = string
 }
 
-variable "tenant_id" {
-  description = "Microsoft Entra tenant ID"
-  type        = string
-}
-
 variable "scope" {
   description = "OAuth scope advertised in scopes_supported for this MCP server (e.g. https://search.azure.com/.default)"
   type        = string

@@ -72,8 +72,6 @@ locals {
   toolbox_project_name         = "toolbox-project"
   toolbox_mcp_uri_suffix       = "api/projects/${local.toolbox_project_name}/toolboxes/${local.toolbox_path}/mcp"
   toolbox_mcp_endpoint_query   = "?api-version=v1"
-  logicmcp_path                = var.logicmcp_api_name
-  logicmcp_uri_suffix          = "api/mcpservers/projects/mcp"
 
   foundryiq_acl_mcp_prm_url = "${data.azurerm_api_management.apim.gateway_url}/${local.prm_well_known_path}/${local.foundryiq_acl_mcp_path}/${local.foundryiq_acl_mcp_uri_suffix}"
   toolbox_prm_url           = "${data.azurerm_api_management.apim.gateway_url}/${local.prm_well_known_path}/${local.toolbox_path}/${local.toolbox_mcp_uri_suffix}"
@@ -1078,22 +1076,10 @@ module "foundryiq_acl_mcp" {
 }
 
 # 共有マネージド ID (mcp) へのロール割り当て (このFunction専用ストレージに対して)
-resource "azurerm_role_assignment" "foundryiq_acl_mcp_storage_queue_data_contributor" {
-  scope                = module.foundryiq_acl_mcp_storage.storage_account_id
-  role_definition_name = "Storage Queue Data Contributor"
-  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
-}
-
-resource "azurerm_role_assignment" "foundryiq_acl_mcp_storage_blob_data_owner" {
-  scope                = module.foundryiq_acl_mcp_storage.storage_account_id
-  role_definition_name = "Storage Blob Data Owner"
-  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
-}
-
-resource "azurerm_role_assignment" "foundryiq_acl_mcp_storage_table_data_contributor" {
-  scope                = module.foundryiq_acl_mcp_storage.storage_account_id
-  role_definition_name = "Storage Table Data Contributor"
-  principal_id         = data.azurerm_user_assigned_identity.mcp.principal_id
+module "foundryiq_acl_mcp_func_role" {
+  source                              = "./modules/app/function/role"
+  storage_account_scope_id            = module.foundryiq_acl_mcp_storage.storage_account_id
+  user_assigned_identity_principal_id = data.azurerm_user_assigned_identity.mcp.principal_id
 }
 
 # 共有マネージド ID (mcp) → AI Search (kb_client.py が DefaultAzureCredential 経由で knowledgebases/retrieve を呼ぶ)
@@ -1111,7 +1097,6 @@ module "foundryiq_acl_mcp_api" {
   api_management_id              = data.azurerm_api_management.apim.id
   api_management_logger_id       = local.apim_logger_id
   mcp_url                        = module.foundryiq_acl_mcp.uri
-  tenant_id                      = data.azuread_client_config.current.tenant_id
   diagnostic_sampling_percentage = 100.0
 }
 
@@ -1321,7 +1306,6 @@ module "apim_toolbox" {
   toolbox_name          = local.toolbox_path
   project_name          = local.toolbox_project_name
   foundry_backend_names = [for k, v in module.ai_foundry : v.name]
-  tenant_id             = data.azuread_client_config.current.tenant_id
 
   diagnostic_sampling_percentage = 100.0
 
@@ -1331,19 +1315,14 @@ module "apim_toolbox" {
 
 
 # MCPサーバー共通の OAuth 2.0 Protected Resource Metadata (RFC 9728) 動的ディスカバリーAPI。
-# Microsoft公式サンプル (Azure-Samples/AI-Gateway, labs/mcp-prm-oauth) と同じ構成:
-# このAPI自体は path=/.well-known/oauth-protected-resource に固定し、
-# MCPサーバーごとのオペレーション (下記 mcp_prm_* モジュール) をその配下に追加する。
-#
-# apim-mcp-oauth 側の既存 oauth API と同じ name="oauth" を使うため、
-# apply 前に apim-mcp-oauth 側の oauth API を削除しておくこと (このリポジトリ側に一本化する)。
-module "apim_oauth" {
-  source                   = "./modules/gateway/apim-api/oauth-api"
-  resource_group_name      = var.resource_group_name
-  api_management_name      = data.azurerm_api_management.apim.name
-  api_management_logger_id = local.apim_logger_id
-
-  diagnostic_sampling_percentage = 100.0
+# apim-mcp-oauth 側で同構成 (name=oauth, path=.well-known/oauth-protected-resource) を
+# 既に構築済みのため、このリポジトリでは新規作成せず既存リソースを参照するだけにする。
+# MCPサーバーごとのオペレーション (下記 mcp_prm_* モジュール) はその既存APIの配下に追加する。
+data "azurerm_api_management_api" "oauth" {
+  name                = "oauth"
+  api_management_name = data.azurerm_api_management.apim.name
+  resource_group_name = var.resource_group_name
+  revision            = "1"
 }
 
 # foundryiq-acl-mcp (audience=https://search.azure.com/) 向けのPRMオペレーション
@@ -1351,11 +1330,10 @@ module "mcp_prm_foundryiq_acl_mcp" {
   source              = "./modules/gateway/apim-api/mcp-prm-operation"
   resource_group_name = var.resource_group_name
   api_management_name = data.azurerm_api_management.apim.name
-  prm_api_name        = module.apim_oauth.api_name
+  prm_api_name        = data.azurerm_api_management_api.oauth.name
   mcp_server_id       = local.foundryiq_acl_mcp_path
   mcp_endpoint_path   = "${local.foundryiq_acl_mcp_path}/${local.foundryiq_acl_mcp_uri_suffix}"
   apim_gateway_url    = data.azurerm_api_management.apim.gateway_url
-  tenant_id           = data.azuread_client_config.current.tenant_id
   scope               = "https://search.azure.com/.default"
 }
 
@@ -1364,26 +1342,12 @@ module "mcp_prm_toolbox" {
   source              = "./modules/gateway/apim-api/mcp-prm-operation"
   resource_group_name = var.resource_group_name
   api_management_name = data.azurerm_api_management.apim.name
-  prm_api_name        = module.apim_oauth.api_name
+  prm_api_name        = data.azurerm_api_management_api.oauth.name
   mcp_server_id       = local.toolbox_path
   mcp_endpoint_path   = "${local.toolbox_path}/${local.toolbox_mcp_uri_suffix}"
   mcp_endpoint_query  = local.toolbox_mcp_endpoint_query
   apim_gateway_url    = data.azurerm_api_management.apim.gateway_url
-  tenant_id           = data.azuread_client_config.current.tenant_id
   scope               = "https://ai.azure.com/.default"
-}
-
-# logicmcp (apim-mcp-oauth 側の Logic App MCP。audience=mcp-oauth-app自身、conn_logicmcp と同じscope) 向けのPRMオペレーション
-module "mcp_prm_logicmcp" {
-  source              = "./modules/gateway/apim-api/mcp-prm-operation"
-  resource_group_name = var.resource_group_name
-  api_management_name = data.azurerm_api_management.apim.name
-  prm_api_name        = module.apim_oauth.api_name
-  mcp_server_id       = local.logicmcp_path
-  mcp_endpoint_path   = "${local.logicmcp_path}/${local.logicmcp_uri_suffix}"
-  apim_gateway_url    = data.azurerm_api_management.apim.gateway_url
-  tenant_id           = data.azuread_client_config.current.tenant_id
-  scope               = "api://${data.azuread_application.mcp_oauth.client_id}/user_impersonation"
 }
 
 # ------------------------------------------------------------------------------------------------------
