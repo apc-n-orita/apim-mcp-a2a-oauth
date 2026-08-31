@@ -6,7 +6,7 @@
       a2a と異なり、toolbox 専用の App Role は存在しないため roles クレームのチェックは行わない
       (audience の検証のみ。scope は https://ai.azure.com/.default で取得したトークンを想定)。
     -->
-		<validate-azure-ad-token tenant-id="${tenant_id}" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized">
+		<validate-azure-ad-token tenant-id="{{EntraIDTenantId}}" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized">
 			<audiences>
 				<audience>https://ai.azure.com/</audience>
 			</audiences>

@@ -156,9 +156,7 @@ resource "azurerm_api_management_product_policy" "toolbox" {
   product_id          = azurerm_api_management_product.toolbox.product_id
   api_management_name = var.api_management_name
   resource_group_name = var.resource_group_name
-  xml_content = templatefile("${path.module}/files/policy/toolbox_product_policy.xml", {
-    tenant_id = var.tenant_id
-  })
+  xml_content         = file("${path.module}/files/policy/toolbox_product_policy.xml")
 
   depends_on = [
     azurerm_api_management_named_value.toolbox_backends,

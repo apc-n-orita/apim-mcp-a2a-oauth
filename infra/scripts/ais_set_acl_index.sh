@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # Non-interactive argument parsing
-# Usage: aif_set_sh SUBSCRIPTION_ID RESOURCE_GROUP SEARCH_SERVICE_NAME DATASOURCE_NAME STORAGE_ACCOUNT_NAME BLOB_CONTAINER_NAME BLOB_QUERY INDEX_NAME SKILLSET_NAME INDEXER_NAME
+# Usage: aif_set_sh SUBSCRIPTION_ID RESOURCE_GROUP SEARCH_SERVICE_NAME DATASOURCE_NAME STORAGE_ACCOUNT_NAME BLOB_CONTAINER_NAME BLOB_QUERY INDEX_NAME SKILLSET_NAME INDEXER_NAME RESOURCE_URI DEPLOYMENT_ID MODEL_NAME [ACL_FIELDS_RETRIEVABLE]
 
 if [ $# -lt 13 ]; then
-  echo "Usage: bash $0 SUBSCRIPTION_ID RESOURCE_GROUP SEARCH_SERVICE_NAME DATASOURCE_NAME STORAGE_ACCOUNT_NAME BLOB_CONTAINER_NAME BLOB_QUERY INDEX_NAME SKILLSET_NAME INDEXER_NAME RESOURCE_URI DEPLOYMENT_ID MODEL_NAME" >&2
-  echo "Example: bash $0 00000000-0000-0000-0000-000000000000 my-rg mysearchsvc ds-blob mystorage rawdocs '' mainindex mainskill mainindexer https://apim-test.azure-api.net text-embedding-3-small text-embedding-3-small" >&2
+  echo "Usage: bash $0 SUBSCRIPTION_ID RESOURCE_GROUP SEARCH_SERVICE_NAME DATASOURCE_NAME STORAGE_ACCOUNT_NAME BLOB_CONTAINER_NAME BLOB_QUERY INDEX_NAME SKILLSET_NAME INDEXER_NAME RESOURCE_URI DEPLOYMENT_ID MODEL_NAME [ACL_FIELDS_RETRIEVABLE]" >&2
+  echo "Example: bash $0 00000000-0000-0000-0000-000000000000 my-rg mysearchsvc ds-blob mystorage rawdocs '' mainindex mainskill mainindexer https://apim-test.azure-api.net text-embedding-3-small text-embedding-3-small false" >&2
   exit 1
 fi
 
@@ -22,6 +22,15 @@ indexer_name="${10}"
 resource_uri="${11}"
 deployment_id="${12}"
 model_name="${13}"
+
+# UserIds/GroupIds/RbacScope の retrievable 設定。
+# "true" (大文字小文字問わず) 以外はすべて false に正規化する fail-safe 方式。
+# 本番環境では false 推奨 (ACL用の内部識別子を検索結果経由で露出させないため)。
+acl_fields_retrievable="${14:-false}"
+case "${acl_fields_retrievable,,}" in
+  true) acl_fields_retrievable=true ;;
+  *) acl_fields_retrievable=false ;;
+esac
 
 if [ "$model_name" = "text-embedding-3-large" ]; then
   dimensions=3072
@@ -186,9 +195,9 @@ index_body=$(cat <<EOF
     {"name": "snippet_vector", "type": "Collection(Edm.Single)", "searchable": true, "filterable": false, "retrievable": true, "stored": true, "sortable": false, "facetable": false, "key": false, "dimensions": ${dimensions}, "vectorSearchProfile": "tartalia-vector-search-profile", "synonymMaps": []},
     {"name": "title", "type": "Edm.String", "searchable": true, "filterable": false, "retrievable": true, "stored": true, "sortable": false, "facetable": false, "key": false, "analyzer": "standard.lucene", "synonymMaps": []},
     {"name": "metadata_storage_name", "type": "Edm.String", "searchable": true, "filterable": true, "retrievable": true, "stored": true, "sortable": true, "facetable": false, "key": false, "analyzer": "standard.lucene", "synonymMaps": []},
-    {"name": "UserIds", "type": "Collection(Edm.String)", "searchable": false, "filterable": true, "retrievable": true, "stored": true, "sortable": false, "facetable": false, "key": false, "permissionFilter": "userIds", "synonymMaps": []},
-    {"name": "GroupIds", "type": "Collection(Edm.String)", "searchable": false, "filterable": true, "retrievable": true, "stored": true, "sortable": false, "facetable": false, "key": false, "permissionFilter": "groupIds", "synonymMaps": []},
-    {"name": "RbacScope", "type": "Edm.String", "searchable": false, "filterable": true, "retrievable": true, "stored": true, "sortable": true, "facetable": false, "key": false, "permissionFilter": "rbacScope", "synonymMaps": []},
+    {"name": "UserIds", "type": "Collection(Edm.String)", "searchable": false, "filterable": true, "retrievable": ${acl_fields_retrievable}, "stored": true, "sortable": false, "facetable": false, "key": false, "permissionFilter": "userIds", "synonymMaps": []},
+    {"name": "GroupIds", "type": "Collection(Edm.String)", "searchable": false, "filterable": true, "retrievable": ${acl_fields_retrievable}, "stored": true, "sortable": false, "facetable": false, "key": false, "permissionFilter": "groupIds", "synonymMaps": []},
+    {"name": "RbacScope", "type": "Edm.String", "searchable": false, "filterable": true, "retrievable": ${acl_fields_retrievable}, "stored": true, "sortable": true, "facetable": false, "key": false, "permissionFilter": "rbacScope", "synonymMaps": []},
     {"name": "metadata_storage_path", "type": "Edm.String", "searchable": false, "filterable": true, "retrievable": true, "stored": true, "sortable": false, "facetable": false, "key": false, "synonymMaps": []}
   ],
   "scoringProfiles": [],

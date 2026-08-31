@@ -1,0 +1,230 @@
+# A2A Hands-On
+
+A hands-on for securely exposing and calling a Microsoft Foundry **prompt agent** over the **A2A (Agent2Agent) protocol**, fronted by **Azure API Management (APIM)**.
+
+## Hands-On Overview
+
+This hands-on lab demonstrates the end-to-end flow for securely calling an A2A agent in two patterns:
+
+- **Local A2A client (`a2a-agent.py`) → APIM → Foundry prompt agent (tartaria-agent)**
+- **Foundry agent (`a2a-caller`) → APIM → Foundry prompt agent (tartaria-agent)** — agent-to-agent via the A2A tool
+
+In both patterns, APIM enforces the same product policy: Entra ID token validation, **App Role–based authorization** (`roles` claim must match the agent name), per-caller sticky load balancing across Foundry backends (Redis external cache), retry/failover, and JSON-RPC error telemetry to Application Insights. For technical details, see [Technical Details](tech_use.md).
+
+### End-to-End Sequence (Pattern 1 & 2)
+
+Both patterns follow the same sequence against APIM and the Foundry project — only the caller identity and token-acquisition method differ:
+
+- **Pattern 1**: the **local A2A client** (`a2a-agent.py`) acquires an Entra ID access token for the `a2a-agent` application (audience `api://{a2a-oauth-app-id}`) via the signed-in user.
+- **Pattern 2**: the **Foundry agent** (`a2a-caller`) acquires a token for the same application via its A2A tool connection, using the **project Managed Identity**.
+
+In both cases APIM validates the token and checks that the `roles` claim contains the target agent name (`tartaria-agent`).
+
+```mermaid
+sequenceDiagram
+    participant Client as Caller (a2a-agent.py client / a2a-caller agent)
+    participant Entra as Entra ID
+    participant APIM as API Management
+    participant Foundry as Foundry project (tartaria-agent)
+    participant KB as Foundry IQ Knowledge Base (AI Search)
+
+    Client->>Entra: 1) Request access token (api://{a2a-oauth-app-id})
+    Entra-->>Client: 2) Return access token (roles claim only if App Role assigned)
+
+    Client->>APIM: 3) GET /a2a/tartaria-agent/agent-card.json
+    APIM-->>Client: 4) Return agent card
+
+    Client->>APIM: 5) A2A message/send with access token
+    Note over APIM: 6) Validate token + check roles claim == agent name
+    Note over APIM: 7) Sticky backend selection (oid → Redis)
+
+    alt roles claim matches
+        APIM->>Entra: 8a) Acquire Foundry token via APIM Managed Identity
+        APIM->>Foundry: 8b) Forward A2A request with MSI token
+        Foundry->>KB: 9) knowledge_base_retrieve (MCP, project MI)
+        KB-->>Foundry: 10) Grounded results
+        Foundry-->>APIM: 11) A2A response
+        APIM-->>Client: 12a) Return agent answer
+    else roles claim missing/mismatch
+        APIM-->>Client: 12b) 403 Forbidden
+    end
+```
+
+For Pattern 2, two verification projects are provisioned in the first Foundry account, each containing an `a2a-caller` prompt agent with an A2A tool connection (`ProjectManagedIdentity` auth) pointing at the APIM endpoint — they exercise the two branches of the `alt` block above:
+
+| Project                  | App Role on project managed identity | Expected result                           |
+| ------------------------ | ------------------------------------ | ----------------------------------------- |
+| `verify-with-approle`    | `tartaria-agent` role assigned       | ✅ APIM policy passes, answer is returned |
+| `verify-without-approle` | not assigned                         | ❌ APIM policy returns 403                |
+
+## Architecture Features
+
+1. **OAuth2 / Entra ID authorization** — callers (users or managed identities) acquire tokens for the `a2a-agent` application. See [OAuth Authorization](tech_use.md#oauth-authorization-validate-azure-ad-token--role-based-access) in Technical Details.
+2. **App Role–based authorization** — the APIM product policy matches the token `roles` claim against the agent name in the URL (exact or wildcard `prefix-*`). Foundry itself also supports assigning RBAC roles directly at agent scope, but this hands-on deliberately routes end-user authorization through APIM's App Role check instead — see [Why App Roles at APIM, Not Foundry Agent-Scope RBAC Directly](tech_use.md#why-app-roles-at-apim-not-foundry-agent-scope-rbac-directly).
+3. **Sticky load balancing with failover** — per-caller (`oid`) backend assignment persisted in Managed Redis for 24 h; on repeated failures (5xx / 429 / JSON-RPC errors) traffic fails over to another Foundry backend and the sticky assignment is rewritten. See [Load Balancing (with Redis)](tech_use.md#load-balancing-with-redis).
+4. **Secretless connections** — APIM reaches Foundry with its system-assigned managed identity; the Foundry project reaches the knowledge base and OpenAI models (via APIM) with project/search managed identities.
+5. **Observability** — API diagnostics to Application Insights, plus JSON-RPC errors (which arrive as HTTP 200) pushed to the App Insights `exceptions` table by the policy itself. See [JSON-RPC Error Telemetry](tech_use.md#json-rpc-error-telemetry-to-application-insights).
+
+## Hands-On
+
+### 1. Local A2A client → APIM → tartaria-agent
+
+**1-1. Set up the Python environment**
+
+```bash
+python -m venv a2aenv
+source a2aenv/bin/activate
+pip install a2a-sdk azure-identity httpx requests
+```
+
+**1-2. Check your token has the `tartaria-agent` App Role**
+
+The deploying user is assigned the `tartaria-agent` App Role by the IaC. Run `samplecodes/check.entraid_token.py` and verify that `tartaria-agent` is included in the `roles` claim.
+
+```bash
+export OAUTH_APP_ID="$(azd env get-value A2A_OAUTH_APP_CLIENT_ID)"
+python samplecodes/check.entraid_token.py | grep -v '^===' \
+  | jq 'if .roles then (if (.roles | any(. == "tartaria-agent")) then "✅ OK: tartaria-agent is included in roles" else "❌ NG: tartaria-agent not found in roles — run az logout && az login" end) else "⚠️ roles claim is missing — run az logout && az login" end'
+```
+
+**1-3. Run the A2A client**
+
+```bash
+export A2A_BASE_URL=$(azd env get-value A2A_AGENT_API_URL)
+export A2A_AGENT_CARD_PATH="agent-card.json"
+export AZURE_TOKEN_SCOPE="api://$(azd env get-value A2A_OAUTH_APP_CLIENT_ID)/.default"
+
+python samplecodes/a2a-agent.py --new
+```
+
+Ask something about Tartaria:
+
+```
+You: Tell me about Tartaria.
+Agent: ...answer grounded on the Foundry IQ knowledge base with source references...
+```
+
+Useful options:
+
+- `python samplecodes/a2a-agent.py` — continue the previous conversation (reuses the `context_id` stored in `.a2a_context`; pass `--new` to discard it and start fresh)
+- `A2A_DEBUG=1 python samplecodes/a2a-agent.py` — print HTTP status and the `X-Routed-Backend` response header, so you can see which Foundry backend the sticky load balancer selected
+
+### 2. Foundry agents (verify-with-approle / verify-without-approle) → APIM → tartaria-agent
+
+Rough steps — both projects live in the first Foundry account:
+
+```bash
+azd env get-value VERIFY_PROJECT_ENDPOINTS
+```
+
+1. Open the [Microsoft Foundry portal](https://ai.azure.com) and select the project **`verify-with-approle`**.
+2. Open **Agents** → **`a2a-caller`** → playground, and ask a question about Tartaria (e.g., _"Tell me about Tartaria."_).
+   - The A2A tool calls APIM with the **project managed identity**, whose token contains the `tartaria-agent` role → the call passes the APIM policy and the answer comes back.
+3. Repeat the same in the project **`verify-without-approle`**.
+   - The project MI has **no** App Role → APIM returns `403 Access denied: role does not match agent 'tartaria-agent'` and the tool call fails.
+
+### 3. Inspect the Redis cache (sticky backend assignments)
+
+The APIM product policy stores each caller's backend assignment in Managed Redis (`a2a-backend-oid-{oid}`, TTL 24 h). The deploying user is granted data access via an access policy assignment, so you can inspect it with `redis-cli`:
+
+```bash
+export REDIS_HOST=$(azd env get-value REDIS_HOSTNAME)
+export OID=$(az ad signed-in-user show --query id -o tsv)
+export TOKEN=$(az account get-access-token --resource https://redis.azure.com --query accessToken -o tsv)
+```
+
+**Monitor cache operations in real time** (run this in a separate terminal, then send A2A requests):
+
+```bash
+redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN" MONITOR
+```
+
+**Inspect the stored assignments:**
+
+```bash
+redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN"
+```
+
+```
+> KEYS *
+1) "default-workspace_2_a2a-backend-oid-<caller oid>"
+> GET "default-workspace_2_a2a-backend-oid-<caller oid>"
+"<assigned Foundry account name>"
+```
+
+Each key corresponds to one caller (`oid` of a user or a managed identity), and the value is the Foundry backend assigned to that caller. Notes:
+
+- A key appears **only for callers that passed the authorization check** — `verify-without-approle` never gets an entry because it is rejected before the load-balancing step.
+- Deleting a key does **not** reshuffle the assignment: it is recomputed deterministically as `MD5(oid) % <number of backends>`.
+
+### 4. Verify failover
+
+The retry/failover condition of the APIM product policy is _no response / 429 / 5xx / JSON-RPC error_. The easiest way to trigger it — and to recover afterwards — is to **delete the chat model deployment on the assigned backend**: the A2A endpoint itself stays reachable (HTTP 200), but the agent run fails on the server side and comes back as a **JSON-RPC error in the response body**, which is exactly the failure pattern this policy is designed to catch.
+
+> This requires two or more Foundry backends (`ai_locations` with 2+ entries).
+
+```bash
+export RG=$(azd env get-value AZURE_RESOURCE_GROUP)
+
+# 1. Check the currently assigned backend (e.g., aif-<env>-xxx-001)
+redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN" \
+  GET "default-workspace_2_a2a-backend-oid-$OID"
+
+# 2. Delete the chat model deployment on the ASSIGNED Foundry account
+#    (the deployment name is the chat model name configured in infra/main.tfvars.json)
+export CHAT_DEPLOYMENT=$(jq -r '.openai_chat.model_name' infra/main.tfvars.json)
+az cognitiveservices account deployment delete \
+  -g $RG -n <account name from step 1> --deployment-name $CHAT_DEPLOYMENT
+
+# 3. Send an A2A request in debug mode (X-Routed-Backend header is printed)
+A2A_DEBUG=1 python samplecodes/a2a-agent.py
+# -> The first request takes ~8 s (3 retries at 2 s interval + failover attempt),
+#    then the answer comes back with X-Routed-Backend showing the OTHER account.
+
+# 4. Confirm the sticky assignment was rewritten to the failover target
+redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN" \
+  GET "default-workspace_2_a2a-backend-oid-$OID"
+
+# 5. Recover — the deleted deployment is managed by Terraform, so azd up recreates it
+azd up
+```
+
+What to observe:
+
+- **Only the first request after the deletion is slow** (retries + failover). Subsequent requests are fast because the Redis assignment already points at the failover target — this is the sticky-rewrite behavior in action.
+- With `MONITOR` running in another terminal, you can see the `SET a2a-backend-oid-...` command issued at the moment of failover.
+- The JSON-RPC errors are recorded in the Application Insights `exceptions` table as `JsonRpcError` (with `agentName` / `backend` / `attempt` properties).
+
+**Query errors in Application Insights:**
+
+Run this KQL query in the Application Insights **Logs** tab to inspect JSON-RPC errors and track failover attempts:
+
+```kusto
+exceptions
+| where timestamp > ago(1h)
+| where type == "JsonRpcError"
+| extend
+    agentName    = tostring(customDimensions["agentName"]),
+    backend      = tostring(customDimensions["backend"]),
+    attempt      = tostring(customDimensions["attempt"]),
+    errorMessage = tostring(customDimensions["errorMessage"]),
+    errorCode = tostring(customDimensions["errorCode"])
+| project timestamp, type, outerMessage, severityLevel, agentName, backend, attempt, errorCode, errorMessage
+| order by timestamp desc, attempt desc
+```
+
+This query surfaces:
+
+- **timestamp**: when the error occurred
+- **agentName**: target agent (e.g., `tartaria-agent`)
+- **backend**: which Foundry account encountered the failure
+- **attempt**: retry attempt number (1–4)
+- **errorCode** / **errorMessage**: the JSON-RPC error details
+
+## See also
+
+- [MCP Hands-On](../mcp/README.md) — the other hands-on track in this repo
+
+## Next
+
+Continue to [Technical Details](tech_use.md) — APIM policy internals, OAuth authorization, load balancing, and Foundry RBAC design.

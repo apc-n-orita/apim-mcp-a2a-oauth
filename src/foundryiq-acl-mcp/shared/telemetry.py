@@ -39,10 +39,14 @@ def configure() -> None:
 
     connection_string = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
     if connection_string:
-        configure_azure_monitor(
-            connection_string=connection_string,
-            enable_trace_based_sampling_for_logs=False,
-        )
+        # ロガーのレベル抑制は configure_azure_monitor() より前に行う。
+        # ロギングのレベル判定はログ出力のその瞬間に評価されるため、
+        # configure_azure_monitor() の後で抑制すると、その呼び出し内部で
+        # 発生するログ (例: exporter 認証のための ManagedIdentityCredential
+        # 解決時の "ManagedIdentityCredential will use App Service managed
+        # identity with client_id: ..." など) が抑制前に出力され、
+        # Azure Monitor へのハンドラ接続もその内部で行われるため、
+        # そのまま traces テーブルに送信されてしまう。
         logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(
             logging.WARNING
         )
@@ -56,6 +60,11 @@ def configure() -> None:
         # retrieve() のたびに "ManagedIdentityCredential.get_token_info succeeded" 等が積み上がる。
         # azure.identity._internal.* の子ロガーはこの親のレベルを継承するため、ここ1箇所で抑制できる。
         logging.getLogger("azure.identity").setLevel(logging.WARNING)
+
+        configure_azure_monitor(
+            connection_string=connection_string,
+            enable_trace_based_sampling_for_logs=False,
+        )
 
     _configured = True
 

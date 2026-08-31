@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "toolbox": {
+      "type": "http",
+      "url": "",
+      "headersHelper": "TOKEN=$(az account get-access-token --scope 'https://ai.azure.com/.default' --query accessToken -o tsv) && echo \"{\\\"Authorization\\\": \\\"Bearer $TOKEN\\\"}\""
+    },
+    "foundryiq-acl-mcp": {
+      "type": "http",
+      "url": "",
+      "headersHelper": "TOKEN=$(az account get-access-token --scope 'https://search.azure.com/.default' --query accessToken -o tsv) && echo \"{\\\"Authorization\\\": \\\"Bearer $TOKEN\\\"}\""
+    }
+  }
+}

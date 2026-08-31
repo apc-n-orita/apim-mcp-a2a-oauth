@@ -29,11 +29,6 @@ variable "foundry_backend_names" {
   type        = list(string)
 }
 
-variable "tenant_id" {
-  description = "Microsoft Entra tenant ID used to validate the inbound Authorization token"
-  type        = string
-}
-
 variable "api_management_logger_id" {
   type = string
 }

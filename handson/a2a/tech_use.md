@@ -2,7 +2,7 @@
 
 ## APIM Policy Explanation
 
-The `A2A` product policy ([a2a_product_policy.xml](infra/modules/gateway/apim-api/a2a-agent/files/policy/a2a_product_policy.xml)) implements three mechanisms in a single pipeline: OAuth authorization, sticky load balancing across Foundry backends, and JSON-RPC error telemetry. The `tartaria-agent` API policy ([a2a_api_policy.xml](infra/modules/gateway/apim-api/a2a-agent/files/policy/a2a_api_policy.xml)) adds a per-caller rate limit on top.
+The `A2A` product policy ([a2a_product_policy.xml](../../infra/modules/gateway/apim-api/a2a-agent/files/policy/a2a_product_policy.xml)) implements three mechanisms in a single pipeline: OAuth authorization, sticky load balancing across Foundry backends, and JSON-RPC error telemetry. The `tartaria-agent` API policy ([a2a_api_policy.xml](../../infra/modules/gateway/apim-api/a2a-agent/files/policy/a2a_api_policy.xml)) adds a per-caller rate limit on top.
 
 ### Load Balancing (with Redis)
 
@@ -37,7 +37,7 @@ In other words: the **first** request from a caller computes `MD5(oid) % N` and 
 
 **Retry and failover** (in the `<backend>` section): the retry condition is *no response / 429 / 5xx / JSON-RPC error in the body*. Attempts 1–3 retry the assigned backend at 2-second intervals; attempt 4 fails over to a deterministically chosen different backend and **rewrites the Redis sticky assignment**, so subsequent requests from that caller avoid the unhealthy backend for the next 24 h — a circuit-breaker effect implemented purely through the sticky map.
 
-**External cache**: [`cache-lookup-value`](https://learn.microsoft.com/azure/api-management/cache-lookup-value-policy) / [`cache-store-value`](https://learn.microsoft.com/azure/api-management/cache-store-value-policy) with `caching-type="external"` require an [external Redis-compatible cache](https://learn.microsoft.com/azure/api-management/api-management-howto-cache-external) registered on APIM. The Terraform configuration is in [infra/main.tf](infra/main.tf) (`azurerm_managed_redis.a2a_cache` and `azurerm_api_management_redis_cache.a2a_external_cache`):
+**External cache**: [`cache-lookup-value`](https://learn.microsoft.com/azure/api-management/cache-lookup-value-policy) / [`cache-store-value`](https://learn.microsoft.com/azure/api-management/cache-store-value-policy) with `caching-type="external"` require an [external Redis-compatible cache](https://learn.microsoft.com/azure/api-management/api-management-howto-cache-external) registered on APIM. The Terraform configuration is in [infra/main.tf](../../infra/main.tf) (`azurerm_managed_redis.a2a_cache` and `azurerm_api_management_redis_cache.a2a_external_cache`):
 
 ```hcl
 resource "azurerm_managed_redis" "a2a_cache" {
@@ -104,7 +104,7 @@ This is the same class of tradeoff already noted for [PIM for Groups](#productio
 The A2A protocol is JSON-RPC: **a failed agent run still returns HTTP 200**, with the failure expressed only inside the body (`{"error": {"code": ..., "message": ...}}`). This creates a blind spot in standard APIM telemetry:
 
 - In the APIM request logs, these calls are recorded as **successful (200) requests** — indistinguishable from healthy traffic.
-- The API diagnostics are configured in Terraform ([a2a-agent.tf](infra/modules/gateway/apim-api/a2a-agent/a2a-agent.tf), `azurerm_api_management_api_diagnostic.a2a_api`) with `always_log_errors = true` and a configurable `sampling_percentage`. `alwaysLog: allErrors` is officially defined as *"Always log all **erroneous** request regardless of sampling settings"* ([Diagnostic REST reference](https://learn.microsoft.com/rest/api/apimanagement/diagnostic/create-or-update#alwayslog)) — i.e., HTTP errors are exempt from sampling and always recorded even when the sampling percentage is lowered. However, an HTTP 200 JSON-RPC failure is **not classified as an erroneous request**, so it remains subject to sampling and never surfaces as a failure signal.
+- The API diagnostics are configured in Terraform ([a2a-agent.tf](../../infra/modules/gateway/apim-api/a2a-agent/a2a-agent.tf), `azurerm_api_management_api_diagnostic.a2a_api`) with `always_log_errors = true` and a configurable `sampling_percentage`. `alwaysLog: allErrors` is officially defined as *"Always log all **erroneous** request regardless of sampling settings"* ([Diagnostic REST reference](https://learn.microsoft.com/rest/api/apimanagement/diagnostic/create-or-update#alwayslog)) — i.e., HTTP errors are exempt from sampling and always recorded even when the sampling percentage is lowered. However, an HTTP 200 JSON-RPC failure is **not classified as an erroneous request**, so it remains subject to sampling and never surfaces as a failure signal.
 
 To close this gap, the product policy parses the response body into a `JObject` **once per attempt** (`preserveContent: true`, so the client still receives the original body) and caches the result in a `jsonRpcBody` variable — `error.code` and `error.message` are then read from that cached object via `SelectToken`, instead of re-parsing the body once per field. When `error.message` is present, the policy pushes an exception **directly to the Application Insights `exceptions` table** via the ingestion API (`{{app-insights-ingestion-endpoint}}/v2.1/track`), authenticated with the APIM managed identity (Entra ID token for `https://monitor.azure.com`):
 
@@ -131,7 +131,7 @@ The API-level policy applies `rate-limit-by-key` with the caller's `oid` as the 
 
 ## Foundry: API Keys Disabled (RBAC-Only Access)
 
-All Foundry accounts created by this IaC disable API-key (local) authentication ([aiservice module](infra/modules/ai/aiservice/aiservice.tf)):
+All Foundry accounts created by this IaC disable API-key (local) authentication ([aiservice module](../../infra/modules/ai/aiservice/aiservice.tf)):
 
 ```hcl
 properties = {
@@ -185,6 +185,6 @@ Two options exist for the human side:
 - By combining with **Entra ID Conditional Access**, multi-layered security policies can be applied based on device state, network location, and sign-in risk. Token issuance for the `a2a-agent` application (`api://{a2a-oauth-app-id}`) can be gated by Conditional Access before the APIM policy ever sees the request — authorization then happens at two independent layers (token issuance conditions + App Role check).
 - For **Agent Identities** (each Foundry agent in this setup receives its own Entra ID identity and blueprint), applying policies at the blueprint level enables bulk protection of all agents of the same type.
 
----
+## Next
 
-[Back to README](./README.md)
+With both hands-on tracks complete, see the root README's [A Note on Where This Sits](../../README.md#a-note-on-where-this-sits) for how this repository fits into the larger arc.

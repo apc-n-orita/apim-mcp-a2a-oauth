@@ -13,21 +13,6 @@ variable "api_management_logger_id" {
   type        = string
 }
 
-variable "apim_gateway_url" {
-  description = "Gateway URL of the API Management instance (used as the \"resource\" field in the metadata response)"
-  type        = string
-}
-
-variable "tenant_id" {
-  description = "Microsoft Entra tenant ID"
-  type        = string
-}
-
-variable "scope" {
-  description = "OAuth scope advertised in scopes_supported (e.g. https://ai.azure.com/.default)"
-  type        = string
-}
-
 variable "api_name" {
   description = "Name of the API on APIM. Defaults to \"oauth\" to match/replace apim-mcp-oauth's existing oauth API (that one must be deleted first to avoid a name/path collision)"
   type        = string
@@ -35,9 +20,9 @@ variable "api_name" {
 }
 
 variable "api_path" {
-  description = "Path of the API on APIM (root, matching apim-mcp-oauth's oauth API)"
+  description = "Path of the API on APIM (no leading/trailing slash). Fixed to the RFC 9728 well-known path so MCP-server-specific operations (see the mcp-prm-operation module) can be added underneath it."
   type        = string
-  default     = ""
+  default     = ".well-known/oauth-protected-resource"
 }
 
 variable "diagnostic_sampling_percentage" {
