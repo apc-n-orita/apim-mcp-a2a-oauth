@@ -187,4 +187,4 @@ Two options exist for the human side:
 
 ## Next
 
-With both hands-on tracks complete, see [On Balance: Security and Developer Enablement as Separate Layers](../../README.md#on-balance-security-and-developer-enablement-as-separate-layers) in the root README for the architectural principle tying this all together.
+With both hands-on tracks complete, see the root README's [A Note on Where This Sits](../../README.md#a-note-on-where-this-sits) for how this repository fits into the larger arc.

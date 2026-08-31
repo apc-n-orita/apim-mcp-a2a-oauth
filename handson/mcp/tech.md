@@ -17,7 +17,7 @@ Covered in the [Overview](README.md#foundry-iq-mcp-docsacl) and its sequence dia
 
 Unlike `foundryiq-acl-mcp` and a2a, the `toolbox` product policy does **not** swap the caller's token for APIM's managed identity before forwarding to Foundry. The policy comment explains why:
 
-> バックエンド認証: クライアントの元トークンをそのままパススルーする (MSIには差し替えない)。foundryiqmcp接続のUserEntraToken (OBO) は、Foundryが受け取るAuthorizationヘッダーが「実際に呼び出したユーザー本人のトークン」であることを前提にしているため、a2aのようにAPIMのMSIトークンへ上書きするとOBOが機能しなくなる。
+> Backend authentication: pass the client's original token straight through (do not swap it for the MI). The `foundryiqmcp` connection's UserEntraToken (OBO) assumes the `Authorization` header Foundry receives is "the actual calling user's own token," so overwriting it with APIM's MI token — as done for a2a — would break OBO.
 
 In short: the `foundryiqmcp` connection's OBO exchange only works if the `Authorization` header really is the calling user's own token, so it can't be swapped for APIM's managed identity the way a2a and foundryiq-acl-mcp do it.
 

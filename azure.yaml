@@ -1,4 +1,4 @@
-name: a2a-agent-foundry
+name: apim-mcp-a2a-oauth
 services:
   foundryiq-acl-mcp:
     project: ./src/foundryiq-acl-mcp/

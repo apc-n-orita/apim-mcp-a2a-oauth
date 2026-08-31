@@ -98,47 +98,10 @@ With the environment deployed, work through the hands-on steps for each track:
 - **[MCP](handson/mcp/README.md)** (foundry iq mcp / toolbox)
 - **[A2A](handson/a2a/README.md#hands-on)**
 
-## On Balance: Security and Developer Enablement as Separate Layers
-
-This hands-on demonstrates a powerful architectural principle often misunderstood in practice: **security and developer experience are not opposing forces that demand compromise—they are distinct layers that can each operate at full capacity simultaneously.**
-
-### The Myth of Trade-off
-
-Many organizations approach security and developer experience as a zero-sum game. The result is a middle ground where both suffer:
-
-- Security teams demand strict controls that slow development.
-- Developers circumvent controls to maintain velocity.
-- Neither team is satisfied, and the actual safety posture becomes ambiguous.
-
-### The Principle of Layers
-
-This architecture separates **authorization** and **resilience** into distinct operational layers:
-
-1. **Authorization Layer (Security at 100%)**: The APIM policy enforces OAuth token validation and **App Role–based authorization**—a hard boundary. If your `roles` claim does not match the target agent name, you receive a `403 Forbidden` response. No compromise, no flexibility. This layer answers the question: _"Are you authorized?"_ The answer is binary: yes or no. (See [OAuth Authorization](handson/a2a/tech_use.md#oauth-authorization-validate-azure-ad-token--role-based-access) for implementation details.)
-
-2. **Resilience Layer (Developer Experience at 100%)**: Once you have proven you belong, the system assumes success will happen—and **sticky load balancing with automatic failover** ensures you get a working backend with minimal latency. Requests route consistently to the same Foundry account for 24 hours; if that account fails, traffic transparently shifts to another, with Redis managing the state. The developer calling the agent never sees an outage; they experience a seamless, predictable response. (See [Sticky Load Balancing](handson/a2a/tech_use.md#load-balancing-with-redis) and [Retry and Failover](handson/a2a/tech_use.md#load-balancing-with-redis) for implementation details.)
-
-These two layers do not compete for priority. Authorization answers _who_ can do what. Resilience answers _how the system behaves when that authorized person acts_. Both operate at full force, without compromise.
-
-### How the Layers Work in This Lab
-
-- **Security layer asks**: "Does your `roles` claim contain the agent name?" This is evaluated before any backend selection occurs—authorization is the outermost gate.
-- **Resilience layer asks**: "Which backend should this caller use, and what happens if it becomes unavailable?" Redis sticky routing and APIM failover handle these concerns transparently, without requiring the caller to retry or change their code.
-
-### The Spirit Behind This Design
-
-This is not merely a technical pattern. It reflects a deeper principle: **protection and freedom are not opposed**. In the same way that a well-designed firewall does not slow legitimate traffic but rather clarifies boundaries, this architecture makes the rules clear—and then steps out of the way.
-
-Security is not "a restriction on developers and users"—it is "a safety mechanism to prevent misuse." Once that mechanism is in place and understood, the developer's experience becomes smooth, fast, and predictable. The two goals do not balance through negotiation; they integrate through clarity.
-
-When you design systems this way—layering concerns so each can be decisive and complete—you enable teams to move with confidence. Architects can enforce hard boundaries without apology. Developers can build fast without circumventing controls. Both sides win not through compromise, but through **structural clarity about which layer owns which decision**.
-
-That is the architecture you see here—and it is both secure and enabling.
-
 ## A Note on Where This Sits
 
-This repository is the second step in a three-part arc: [apim-mcp-oauth](https://github.com/apc-n-orita/apim-mcp-oauth) → **a2a-agent-foundry** → [APICenter](https://github.com/apc-n-orita/APICenter).
+Having just wired up an A2A agent and two MCP servers behind one gateway, this repository is the second step in a three-part arc: [apim-mcp-oauth](https://github.com/apc-n-orita/apim-mcp-oauth) → **apim-mcp-a2a-oauth** → [APICenter](https://github.com/apc-n-orita/APICenter).
 
-Where the first repository built from what was already documented — established OAuth patterns, existing guidance, public precedent — this one had no such map to follow. Wiring APIM, Foundry Agents, and the A2A protocol into a single authorization/resilience design wasn't something to look up; it had to be worked out from the inside, alone, before it could be written down here. In tarot terms, if the first repository is the **Hierophant** — learning the tradition — this one is the **Hermit**: stepping away from the crowd, holding up a single lantern, trusting the light that comes from within rather than one already lit by others.
+Just like the first repository, this one holds both the **Hierophant** and the **Hermit** at once — the mixture simply carries a heavier inward weight here. The same `validate-azure-ad-token` policy and App Role pattern carried over from the first repository, Easy Auth is Azure Functions' own built-in feature, and Foundry IQ's per-request ACL header is Microsoft's own documented pattern — that's the Hierophant, still present here, none of these individual pieces invented from scratch. But wiring APIM's authorization layer, Easy Auth, and that ACL pattern together, across Foundry Agents over A2A and MCP servers (`foundryiq-acl-mcp`, `toolbox`) alike, into one coherent authorization/resilience design, wasn't written down anywhere; it had to be found inward, by the team itself, before it could be written down here. That's the Hermit, turning inward together rather than outward to the crowd, trusting the light that comes from within the team rather than one already lit by others.
 
-That inward work doesn't stay inward. It carries forward into [APICenter](https://github.com/apc-n-orita/APICenter), where this repository's Agents and APIs, together with the first repository's security foundation, are gathered — each keeping its own shape — into a single circle: the **World**. See APICenter's [Closing Thoughts](https://github.com/apc-n-orita/APICenter#closing-thoughts) for that fuller picture.
+That inward work doesn't stay inward. It carries forward into [APICenter](https://github.com/apc-n-orita/APICenter), where this repository's Agent and MCP servers, together with the first repository's security foundation, are gathered — each keeping its own shape — into a single circle: the **World**. See APICenter's [Closing Thoughts](https://github.com/apc-n-orita/APICenter#closing-thoughts) for that fuller picture.
