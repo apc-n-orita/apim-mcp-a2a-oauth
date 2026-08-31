@@ -56,7 +56,8 @@ export APIM_NAME=$(az apim list -g $MCP_RG --query '[0].name' -o tsv)
 echo $APIM_NAME                                                                                                       # -> apim_name
 az resource list -g $MCP_RG --resource-type Microsoft.Insights/components --query '[0].name' -o tsv                  # -> application_insights_name
 az resource list -g $MCP_RG --resource-type Microsoft.OperationalInsights/workspaces --query '[0].name' -o tsv       # -> log_analytics_workspace_name
-az apim api list -g $MCP_RG --service-name $APIM_NAME --query "[?contains(path, 'la-mcp')].path | [0]" -o tsv        # -> logicmcp_api_name
+az rest --method get --url "https://management.azure.com/subscriptions/$(az account show --query id -o tsv)/resourceGroups/$MCP_RG/providers/Microsoft.ApiManagement/service/$APIM_NAME/apis?api-version=2025-09-01-preview" \
+  --query "value[?contains(properties.path, 'la-mcp')].properties.path | [0]" -o tsv                                # -> logicmcp_api_name
 ```
 
 ```jsonc
