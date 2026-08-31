@@ -34,8 +34,11 @@
 | <a name="module_apim_toolbox"></a> [apim\_toolbox](#module\_apim\_toolbox) | ./modules/gateway/apim-api/toolbox | n/a |
 | <a name="module_foundryiq_acl_mcp"></a> [foundryiq\_acl\_mcp](#module\_foundryiq\_acl\_mcp) | ./modules/app/function/app | n/a |
 | <a name="module_foundryiq_acl_mcp_api"></a> [foundryiq\_acl\_mcp\_api](#module\_foundryiq\_acl\_mcp\_api) | ./modules/gateway/apim-api/foundryiq-acl-mcp | n/a |
+| <a name="module_foundryiq_acl_mcp_func_role"></a> [foundryiq\_acl\_mcp\_func\_role](#module\_foundryiq\_acl\_mcp\_func\_role) | ./modules/app/function/role | n/a |
 | <a name="module_foundryiq_acl_mcp_plan"></a> [foundryiq\_acl\_mcp\_plan](#module\_foundryiq\_acl\_mcp\_plan) | ./modules/host/appserviceplan | n/a |
 | <a name="module_foundryiq_acl_mcp_storage"></a> [foundryiq\_acl\_mcp\_storage](#module\_foundryiq\_acl\_mcp\_storage) | ./modules/storage | n/a |
+| <a name="module_mcp_prm_foundryiq_acl_mcp"></a> [mcp\_prm\_foundryiq\_acl\_mcp](#module\_mcp\_prm\_foundryiq\_acl\_mcp) | ./modules/gateway/apim-api/mcp-prm-operation | n/a |
+| <a name="module_mcp_prm_toolbox"></a> [mcp\_prm\_toolbox](#module\_mcp\_prm\_toolbox) | ./modules/gateway/apim-api/mcp-prm-operation | n/a |
 | <a name="module_storage"></a> [storage](#module\_storage) | ./modules/storage | n/a |
 
 ## Resources
@@ -81,9 +84,6 @@
 | [azurerm_role_assignment.current_user_toolbox_project_foundry_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.current_user_verify_project_foundry_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.foundryiq_acl_mcp_search_index_data_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
-| [azurerm_role_assignment.foundryiq_acl_mcp_storage_blob_data_owner](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
-| [azurerm_role_assignment.foundryiq_acl_mcp_storage_queue_data_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
-| [azurerm_role_assignment.foundryiq_acl_mcp_storage_table_data_contributor](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.toolbox_project_appinsights_reader](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.toolbox_project_foundry_user](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 | [azurerm_role_assignment.toolbox_project_monitoring_metrics_publisher](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
@@ -107,6 +107,7 @@
 | [azuread_client_config.current](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/client_config) | data source |
 | [azuread_service_principal.ai_search](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/service_principal) | data source |
 | [azurerm_api_management.apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/api_management) | data source |
+| [azurerm_api_management_api.oauth](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/api_management_api) | data source |
 | [azurerm_application_insights.appi](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/application_insights) | data source |
 | [azurerm_client_config.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config) | data source |
 | [azurerm_log_analytics_workspace.law](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/log_analytics_workspace) | data source |

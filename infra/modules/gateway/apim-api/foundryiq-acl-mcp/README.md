@@ -31,7 +31,6 @@
 | <a name="input_api_management_name"></a> [api\_management\_name](#input\_api\_management\_name) | Name of the existing API Management instance | `string` | n/a | yes |
 | <a name="input_mcp_url"></a> [mcp\_url](#input\_mcp\_url) | Base URL of the backend (the foundryiq-acl-mcp Function App, e.g. https://<host>) | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group of the existing API Management instance | `string` | n/a | yes |
-| <a name="input_tenant_id"></a> [tenant\_id](#input\_tenant\_id) | Microsoft Entra tenant ID used to validate the inbound Authorization token | `string` | n/a | yes |
 | <a name="input_api_description"></a> [api\_description](#input\_api\_description) | Description of the MCP API | `string` | `"MCP tool that searches the ACL-protected Foundry IQ knowledge base"` | no |
 | <a name="input_api_name"></a> [api\_name](#input\_api\_name) | Name/path of the MCP API on APIM | `string` | `"foundryiq-acl-mcp"` | no |
 | <a name="input_diagnostic_sampling_percentage"></a> [diagnostic\_sampling\_percentage](#input\_diagnostic\_sampling\_percentage) | Sampling percentage for the API diagnostic setting | `number` | `100` | no |
