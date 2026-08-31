@@ -93,7 +93,15 @@ azd env get-value TOOLBOX_PROJECT_ENDPOINTS | jq -r '.[]' | while read -r endpoi
 done
 ```
 
-If you change the connections in `toolbox/toolbox.yaml` later, re-run the same loop to recreate the Toolbox on every project.
+### Grant Consent for the `foundryiqmcp` Connection
+
+On its first call, the `foundryiqmcp` connection's On-Behalf-Of exchange requires user consent — the Toolbox returns a JSON-RPC `-32006 CONSENT_REQUIRED` error containing one consent URL per Foundry backend. Extract them with [`samplecodes/get-consent-url.sh`](../../samplecodes/get-consent-url.sh):
+
+```bash
+./samplecodes/get-consent-url.sh "$(azd env get-value TOOLBOX_APIM_URL)"
+```
+
+Open each printed URL in a browser and approve the consent prompt. This is a one-time step per Foundry backend; skipping it causes every `toolbox_search` call touching `foundryiqmcp` to fail with the same consent error.
 
 ### Hands-On
 
