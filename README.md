@@ -8,7 +8,7 @@ The whole environment is provisioned as IaC with Terraform / `azd up`. See [infr
 
 ## Hands-On Overview
 
-See [handson/README.md](handson/README.md) for the full hands-on flow. It covers two tracks:
+This lab covers two hands-on tracks:
 
 - **[MCP](handson/mcp/README.md)** — exposing and protecting MCP servers through APIM: [foundry iq mcp (docsacl)](handson/mcp/README.md#foundry-iq-mcp-docsacl) (an ACL-protected Foundry IQ knowledge base search tool) and [toolbox](handson/mcp/README.md#toolbox) (a Foundry Toolbox MCP endpoint bundling multiple tool connections)
 - **[A2A](handson/a2a/README.md)** — securely calling a Foundry prompt agent (`tartaria-agent`) over the A2A protocol through APIM, with Entra ID / App Role–based authorization, sticky load balancing with failover, and JSON-RPC error telemetry.
