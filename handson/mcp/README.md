@@ -53,11 +53,11 @@ With `.mcp.json` configured (see [Configure `.mcp.json`](#configure-mcpjson) abo
 
 ## Toolbox
 
-A hands-on for calling `toolbox`, a Microsoft Foundry **Toolbox** — an MCP endpoint that bundles multiple tool connections (`foundryiqmcp`, `logicmcp`) behind a single MCP server — through APIM.
+A hands-on for calling `toolbox`, a Microsoft Foundry **Toolbox** — a general mechanism for bundling multiple, differently-typed tools (MCP servers, Agent-to-Agent connections, Web Search, Azure AI Search, OpenAPI tools, and more) behind one MCP-compatible endpoint — through APIM.
 
 ### Overview
 
-- **Backend**: a Foundry Toolbox (`toolbox/toolbox.yaml`), which bundles the `foundryiqmcp` and `logicmcp` project connections into a single `toolbox_search` tool. The Toolbox itself is not an ARM resource; it's created with the `azd ai toolbox` CLI against a Foundry project.
+- **Backend**: a Foundry Toolbox (`toolbox/toolbox.yaml`). In this hands-on it bundles two MCP-server connections — `foundryiqmcp` and `logicmcp` — into a single `toolbox_search` tool, but a Toolbox isn't limited to MCP: the same YAML shape can mix in an A2A connection, Web Search, Azure AI Search, or an OpenAPI tool alongside them. The Toolbox itself is not an ARM resource; it's created with the `azd ai toolbox` CLI against a Foundry project.
 - **Exposure**: published on APIM as a `type: "mcp"` API (`toolbox`), load balanced across multiple Foundry backends with per-caller (`oid`) sticky routing (same pattern as the [a2a hands-on](../a2a/README.md#3-inspect-the-redis-cache-sticky-backend-assignments)) and retry/failover. The client-facing MCP endpoint is `<APIM gateway>/toolbox/api/projects/toolbox-project/toolboxes/toolbox/mcp?api-version=v1` — note the required `?api-version=v1` query string.
 - **Authorization audience**: `https://ai.azure.com/`
 - **Backend authentication**: unlike the a2a and foundryiq-acl-mcp policies, the caller's own token is passed through to the Foundry backend unchanged (not swapped for APIM's managed identity token). This is required so that the `foundryiqmcp` connection's On-Behalf-Of (OBO) exchange sees the actual calling user's token.

@@ -8,7 +8,7 @@ locals {
 
   # apim-mcp-oauth の共有 Entra ID アプリ (mcp-oauth-app-<suffix>) の名前を、
   # 既存リソースグループ名の末尾3文字から導出する。
-  # 例: "rg-apim-oauth-ori-zjh" -> "zjh" -> "mcp-oauth-app-zjh"
+  # 例: "rg-apim-oauth-xxx" -> "xxx" -> "mcp-oauth-app-xxx"
   mcp_oauth_suffix           = substr(var.resource_group_name, length(var.resource_group_name) - 3, 3)
   mcp_oauth_app_display_name = "mcp-oauth-app-${local.mcp_oauth_suffix}"
 
