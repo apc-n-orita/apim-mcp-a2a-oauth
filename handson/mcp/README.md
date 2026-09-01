@@ -69,6 +69,7 @@ sequenceDiagram
     participant APIM as API Management
     participant Redis as Managed Redis
     participant Foundry as Foundry project (toolbox)
+    participant KB as Foundry IQ KB (foundryiqmcp)
 
     Client->>Entra: 1) Request access token (audience https://ai.azure.com)
     Entra-->>Client: 2) Return access token
@@ -78,9 +79,15 @@ sequenceDiagram
     APIM->>Redis: 5) Sticky backend lookup (oid)
     Redis-->>APIM: 6) Assigned Foundry backend (or newly assigned)
     APIM->>Foundry: 7) Forward MCP call with the caller's original token (passthrough)
-    Foundry-->>APIM: 8) MCP response (via foundryiqmcp / logicmcp connections)
-    APIM-->>Client: 9) Return answer
+    Foundry->>Entra: 8) foundryiqmcp connection: On-Behalf-Of token exchange (caller's token -> KB-scoped token)
+    Entra-->>Foundry: 9) Return OBO token, carrying the caller's own identity
+    Foundry->>KB: 10) Query with the OBO token (ACL-filtered by caller identity)
+    KB-->>Foundry: 11) ACL-filtered results
+    Foundry-->>APIM: 12) MCP response (via foundryiqmcp / logicmcp connections)
+    APIM-->>Client: 13) Return answer
 ```
+
+Steps 8–9 are why the caller's own token has to survive unmodified all the way to Foundry (step 7): the `foundryiqmcp` connection's OBO exchange only succeeds if the `Authorization` header it receives is genuinely the calling user's token — see [Backend authentication](#overview-1) above and [Technical Details](tech.md#toolbox-why-the-callers-own-token-is-passed-straight-through) for why swapping it for APIM's managed identity would break this step.
 
 ### Create/publish the Toolbox
 
@@ -88,7 +95,8 @@ The Toolbox itself is created separately from the Terraform deployment. `TOOLBOX
 
 ```bash
 azd env get-value TOOLBOX_PROJECT_ENDPOINTS | jq -r '.[]' | while read -r endpoint; do
-  azd ai project set "$endpoint"
+  export FOUNDRY_PROJECT_ENDPOINT="$endpoint"
+  azd ai toolbox delete toolbox --force || true
   azd ai toolbox create toolbox --from-file toolbox/toolbox.yaml
 done
 ```
