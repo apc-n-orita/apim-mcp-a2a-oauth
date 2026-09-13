@@ -187,7 +187,7 @@ Two options exist for the human side:
 
 ## Supplementary: Foundry Guardrails
 
-Besides the APIM-side access control described above, Microsoft Foundry lets you configure **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)) directly on the `a2a-agent` — via the Foundry portal, the RAI Policies REST API, or as Terraform (a guardrail is a `Microsoft.CognitiveServices/accounts/raiPolicies` resource, deployable through the `azapi` provider). This adds content-level checks — harmful content (hate/violence/sexual/self-harm), prompt injection, and a **PII detection (Preview)** category that can mask personal information — applied at any of the four intervention points available to agents:
+Besides the APIM-side access control described above, Microsoft Foundry lets you configure **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)) directly on the `a2a-agent` — via the Foundry portal, the RAI Policies REST API, or as Terraform (a guardrail is a `Microsoft.CognitiveServices/accounts/raiPolicies` resource, deployable through the `azapi` provider). A guardrail only takes effect once it's assigned to the agent — `rai_config.rai_policy_name` on the agent definition (or the portal's "Add agents" step). A guardrail can add checks such as harmful content (hate/violence/sexual/self-harm), prompt injection, and a **PII detection (Preview)** category that blocks (or annotates) the entire output, applied at any of the four intervention points available to agents:
 
 | Intervention point | What is scanned |
 |---|---|
