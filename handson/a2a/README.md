@@ -82,7 +82,7 @@ pip install a2a-sdk azure-identity httpx requests
 The deploying user is assigned the `tartaria-agent` App Role by the IaC. Run `samplecodes/check.entraid_token.py` and verify that `tartaria-agent` is included in the `roles` claim.
 
 ```bash
-export OAUTH_APP_ID="$(azd env get-value A2A_OAUTH_APP_CLIENT_ID)"
+export OAUTH_APP_ID="api://$(azd env get-value A2A_OAUTH_APP_CLIENT_ID)"
 python samplecodes/check.entraid_token.py | grep -v '^===' \
   | jq 'if .roles then (if (.roles | any(. == "tartaria-agent")) then "✅ OK: tartaria-agent is included in roles" else "❌ NG: tartaria-agent not found in roles — run az logout && az login" end) else "⚠️ roles claim is missing — run az logout && az login" end'
 ```

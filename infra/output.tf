@@ -63,6 +63,11 @@ output "TOOLBOX_PROJECT_ENDPOINTS" {
   value       = { for k, v in azapi_resource.toolbox_project : k => "https://${module.ai_foundry[k].name}.services.ai.azure.com/api/projects/${v.name}" }
 }
 
+output "LANGUAGE_ENDPOINT" {
+  description = "APIM-fronted Cognitive Services endpoint for LANGUAGE_ENDPOINT (e.g. Azure AI Language PII detection at /language/:analyze-text); keyless (Entra ID + Cognitive Services User RBAC), audience https://cognitiveservices.azure.com/"
+  value       = "${data.azurerm_api_management.apim.gateway_url}/${module.apim_api_cognitiveservices.api_path}"
+}
+
 output "VERIFY_PROJECT_ENDPOINTS" {
   description = "Endpoints of the verification projects (a2a-caller agent calls tartaria-agent via the APIM A2A endpoint; with-approle passes the APIM policy, without-approle gets 403)"
   value       = { for k, v in azapi_resource.verify_project : k => "https://${module.ai_foundry["0"].name}.services.ai.azure.com/api/projects/${v.name}" }

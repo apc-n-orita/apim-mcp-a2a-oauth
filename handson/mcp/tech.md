@@ -96,6 +96,17 @@ logging.getLogger("azure.monitor.opentelemetry.exporter.export._base").setLevel(
 logging.getLogger("azure.identity").setLevel(logging.WARNING)
 ```
 
+## Supplementary: Foundry Guardrails
+
+Like the `a2a-agent`, the agents behind `toolbox` also support Microsoft Foundry's **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)), configurable in the Foundry portal, via the RAI Policies REST API, or as Terraform (`Microsoft.CognitiveServices/accounts/raiPolicies` via the `azapi` provider). Besides the usual harmful-content and prompt-injection checks, guardrails include a **PII detection (Preview)** category that can mask personal information passing through. Since `toolbox` is exactly the path that lets an agent invoke tools, only these two intervention points are relevant here:
+
+| Intervention point | What is scanned |
+|---|---|
+| Tool call (Preview) | The action/data the agent proposes to send to a tool |
+| Tool response (Preview) | The content returned from a tool back to the agent |
+
+The role is different from the access control above: `validate-azure-ad-token` and token passthrough decide *who* may call `toolbox`, while guardrails check *what content* crosses the tool boundary afterward (harmful content, PII, etc.). Combining both — access control at the gateway and guardrails at the agent — covers both sides.
+
 ## See also
 
 - [Hands-On](README.md) — setup and walkthrough for both MCP servers

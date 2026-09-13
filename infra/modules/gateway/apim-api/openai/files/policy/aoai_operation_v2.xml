@@ -5,8 +5,8 @@
                 <audience>https://cognitiveservices.azure.com/</audience>
             </audiences>
         </validate-azure-ad-token>
-        <set-variable name="allowedClientIds" value="{{AIS-MI-CLIENT-ID}}" />
-        <set-variable name="allowedGroupIds" value="" />
+        <set-variable name="allowedClientIds" value="{{${AIS-MI-CLIENT-ID}}}" />
+        <set-variable name="allowedGroupIds" value="{{${OpenAiOpsGroupIds}}}" />
         <set-variable name="currentAppId" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("appid", ""))" />
         <set-variable name="deploymentId" value="@{
             var path = context.Request.Url.Path;
@@ -40,20 +40,20 @@
                 </return-response>
             </when>
         </choose>
-        <set-backend-service id="apim-generated-policy" backend-id="{{OpenAIBackendPool}}" />
+        <set-backend-service id="apim-generated-policy" backend-id="{{${OpenAIBackendPool}}}" />
         
         <!-- Apply token limit ONLY when currentAppId is NOT AIS-MI-CLIENT-ID -->
         <choose>
             <when condition="@{
                 string currentAppId = (string)context.Variables["currentAppId"];
-                string aisClientId = "{{AIS-MI-CLIENT-ID}}";
+                string aisClientId = "{{${AIS-MI-CLIENT-ID}}}";
                 return currentAppId != aisClientId;
             }">
                 <llm-token-limit counter-key="@((string)context.Variables["deploymentId"])" tokens-per-minute="${TokenLimit}" estimate-prompt-tokens="false" remaining-tokens-variable-name="remainingTokens" />
             </when>
         </choose>
         
-        <llm-emit-token-metric namespace="aif-aisearch">
+        <llm-emit-token-metric namespace="apim-aif-openai">
             <dimension name="Operation ID" />
             <dimension name="Client ID" value="@((string)context.Variables["currentAppId"])" />
             <dimension name="Access Type" value="@{

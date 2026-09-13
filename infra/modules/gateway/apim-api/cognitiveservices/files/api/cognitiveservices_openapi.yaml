@@ -1,0 +1,57 @@
+openapi: 3.0.1
+info:
+  title: cognitiveservice
+  version: "1.0"
+servers:
+  - url: ${apim_gateway_url}/cognitiveservices
+paths:
+  /*:
+    delete:
+      summary: DELETE
+      operationId: delete-default
+      responses:
+        "200":
+          description: ""
+    get:
+      summary: GET
+      operationId: get-default
+      responses:
+        "200":
+          description: ""
+    options:
+      summary: OPTIONS
+      operationId: options-default
+      responses:
+        "200":
+          description: ""
+    patch:
+      summary: PATCH
+      operationId: patch-default
+      responses:
+        "200":
+          description: ""
+    head:
+      summary: HEAD
+      operationId: head-default
+      responses:
+        "200":
+          description: ""
+    put:
+      summary: PUT
+      operationId: put-default
+      responses:
+        "200":
+          description: ""
+    post:
+      summary: POST
+      operationId: post-default
+      responses:
+        "200":
+          description: ""
+    trace:
+      summary: TRACE
+      operationId: trace-default
+      responses:
+        "200":
+          description: ""
+components: {}
