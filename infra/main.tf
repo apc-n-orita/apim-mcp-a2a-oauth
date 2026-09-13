@@ -12,6 +12,12 @@ locals {
   mcp_oauth_suffix           = substr(var.resource_group_name, length(var.resource_group_name) - 3, 3)
   mcp_oauth_app_display_name = "mcp-oauth-app-${local.mcp_oauth_suffix}"
 
+  # apim-mcp-oauth の azd 環境名を、既存リソースグループ名 "rg-<environment_name>-<suffix>" から
+  # prefix "rg-" と suffix "-<mcp_oauth_suffix>" を取り除いて復元する。
+  # apim-mcp-oauth 側の ops グループ名 "ops-mcp-access-${var.environment_name}" と対応させるため。
+  mcp_oauth_environment_name = trimsuffix(trimprefix(var.resource_group_name, "rg-"), "-${local.mcp_oauth_suffix}")
+  ops_group_display_name     = "ops-mcp-access-${local.mcp_oauth_environment_name}"
+
   # 固定名
   agent_name   = "tartaria-agent"
   project_name = "ai-foundry-project"
@@ -197,6 +203,12 @@ data "azurerm_application_insights" "appi" {
 # foundryiq_acl Function の Easy Auth はこれを再利用し、新規のアプリ登録は行わない。
 data "azuread_application" "mcp_oauth" {
   display_name = local.mcp_oauth_app_display_name
+}
+
+# apim-mcp-oauth が持つ運用グループ (バックエンド直接アクセス用、トラブルシューティング目的)。
+# cognitiveservices API の呼び出し元許可に流用し、新規のグループ作成は行わない。
+data "azuread_group" "ops_mcp_access" {
+  display_name = local.ops_group_display_name
 }
 
 data "azurerm_log_analytics_workspace" "law" {
@@ -1268,8 +1280,27 @@ module "apim_api_openai" {
   api_management_id              = data.azurerm_api_management.apim.id
   apim_gateway_url               = data.azurerm_api_management.apim.gateway_url
   apim_principal_id              = data.azurerm_api_management.apim.identity[0].principal_id
+  ops_group_ids                  = [data.azuread_group.ops_mcp_access.object_id]
   diagnostic_sampling_percentage = 100.0
   token_limit                    = var.tpm_limit_token
+}
+
+# Azure Cognitive Services API (Azure AI Language PII detection の /language/:analyze-text 等を含む汎用パススルー)
+# (msfoundry-docsacl-apim の cognitiveservices モジュールを移植。呼び出し元は mcp マネージド ID または ops グループに限定)
+module "apim_api_cognitiveservices" {
+  source = "./modules/gateway/apim-api/cognitiveservices"
+
+  resource_group_name            = var.resource_group_name
+  api_management_name            = data.azurerm_api_management.apim.name
+  foundry_backend_names          = [for k, v in module.ai_foundry : v.name]
+  foundry_backend_ids            = [for k, v in module.ai_foundry : v.ai_foundry_id]
+  api_management_logger_id       = local.apim_logger_id
+  api_management_id              = data.azurerm_api_management.apim.id
+  apim_gateway_url               = data.azurerm_api_management.apim.gateway_url
+  apim_principal_id              = data.azurerm_api_management.apim.identity[0].principal_id
+  mi_client_ids                  = [data.azurerm_user_assigned_identity.mcp.client_id]
+  ops_group_ids                  = [data.azuread_group.ops_mcp_access.object_id]
+  diagnostic_sampling_percentage = 100.0
 }
 
 module "apim_a2a_agent" {

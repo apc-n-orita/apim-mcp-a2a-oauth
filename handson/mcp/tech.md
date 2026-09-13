@@ -96,6 +96,43 @@ logging.getLogger("azure.monitor.opentelemetry.exporter.export._base").setLevel(
 logging.getLogger("azure.identity").setLevel(logging.WARNING)
 ```
 
+## Supplementary: Foundry Guardrails
+
+A `toolbox` version can carry its own Microsoft Foundry **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)). The RAI policy itself is configured in the Foundry portal, via the RAI Policies REST API, or as Terraform (`Microsoft.CognitiveServices/accounts/raiPolicies` via the `azapi` provider); the toolbox version then references that policy by name via `policies.rai_config.rai_policy_name` when it's created or updated.
+
+Only a subset of guardrails can be assigned this way: a guardrail is offered as an option for a toolbox only when it has at least one content filter whose intervention point is one of these two:
+
+| Intervention point      | What is scanned                                      |
+| ----------------------- | ---------------------------------------------------- |
+| Tool call (Preview)     | The action/data `toolbox` proposes to send to a tool |
+| Tool response (Preview) | The content returned from a tool back to `toolbox`   |
+
+Besides the usual harmful-content and prompt-injection checks, guardrails include a **PII detection (Preview)** category that can block or annotate personal information passing through.
+
+The role is different from the access control above: `validate-azure-ad-token` and token passthrough decide _who_ may call `toolbox`, while the toolbox's guardrail checks _what content_ crosses the tool boundary afterward (harmful content, PII, etc.). Combining both — access control at the gateway and a guardrail on the toolbox version — covers both sides.
+
+### Masking only part of the PII
+
+Guardrails only block (or annotate) the _entire_ output when PII is detected — they can't redact just the PII portion and let the rest of the text through. For that finer-grained case, Azure AI Language's PII detection (`recognize_pii_entities`) is the tool for the job.
+
+#### Trying it out
+
+[`samplecodes/test_language-service-pii.py`](../../samplecodes/test_language-service-pii.py) shows a minimal, standalone call to it via `LANGUAGE_ENDPOINT`, pointed at this repo's `cognitiveservices` APIM API:
+
+```bash
+export LANGUAGE_ENDPOINT="$(azd env get-value LANGUAGE_ENDPOINT)"
+python samplecodes/test_language-service-pii.py
+```
+
+#### Using it inside `foundryiq-acl-mcp`
+
+The toolbox's guardrail sits at the boundary between `toolbox` and the MCP server it forwards to — it doesn't reach into `foundryiq-acl-mcp`'s own code. For partial masking there, the same call shown in that sample script can be added directly inside the Function MCP's existing request flow (`tools/knowledge_retrieve.py` → `shared/kb_client.py`), at either of two points:
+
+- **Input**: the `query` string, before it's sent to Foundry IQ's `retrieve()` call — masks PII typed by the caller before it ever reaches the knowledge base or gets logged in Azure AI Search's own telemetry.
+- **Output**: the grounding text extracted from Foundry IQ's response, before it's returned to the MCP caller — masks PII that lives in the indexed source documents themselves, which would otherwise surface verbatim in the tool's result.
+
+The two points are independent — mask the query alone, the output alone, or both, depending on which side the risk is judged to matter more.
+
 ## See also
 
 - [Hands-On](README.md) — setup and walkthrough for both MCP servers

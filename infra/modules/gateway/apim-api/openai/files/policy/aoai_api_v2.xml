@@ -5,8 +5,8 @@
                     <audience>https://cognitiveservices.azure.com/</audience>
                 </audiences>
             </validate-azure-ad-token>
-            <set-variable name="allowedClientIds" value="{{AIS-MI-CLIENT-ID}}" />
-            <set-variable name="allowedGroupIds" value="" />
+            <set-variable name="allowedClientIds" value="{{${AIS-MI-CLIENT-ID}}}" />
+            <set-variable name="allowedGroupIds" value="{{${OpenAiOpsGroupIds}}}" />
             <set-variable name="currentAppId" value="@(((Jwt)context.Variables["jwt"]).Claims.GetValueOrDefault("appid", ""))" />
             <choose>
                 <when condition="@{

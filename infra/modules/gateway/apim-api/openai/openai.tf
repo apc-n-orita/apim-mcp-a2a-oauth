@@ -128,12 +128,22 @@ resource "azurerm_api_management_named_value" "openai_backend_pool" {
   secret              = false
 }
 
+resource "azurerm_api_management_named_value" "ops_group_ids" {
+  name                = "OpenAiOpsGroupIds"
+  resource_group_name = var.resource_group_name
+  api_management_name = var.api_management_name
+  display_name        = "OpenAiOpsGroupIds"
+  value               = join(",", var.ops_group_ids)
+  secret              = true
+}
+
 resource "azurerm_api_management_api_policy" "openai" {
   api_name            = azurerm_api_management_api.openai.name
   api_management_name = var.api_management_name
   resource_group_name = var.resource_group_name
   xml_content = templatefile("${path.module}/files/policy/aoai_api_v2.xml", {
-    AIS-MI-CLIENT-ID = azurerm_api_management_named_value.ais-mi-client-id.name
+    AIS-MI-CLIENT-ID  = azurerm_api_management_named_value.ais-mi-client-id.name
+    OpenAiOpsGroupIds = azurerm_api_management_named_value.ops_group_ids.name
   })
 
 }
@@ -147,6 +157,7 @@ resource "azurerm_api_management_api_operation_policy" "openai_chat_operation" {
   xml_content = templatefile("${path.module}/files/policy/aoai_operation_v2.xml", {
     AIS-MI-CLIENT-ID  = azurerm_api_management_named_value.ais-mi-client-id.name
     OpenAIBackendPool = azurerm_api_management_named_value.openai_backend_pool.name
+    OpenAiOpsGroupIds = azurerm_api_management_named_value.ops_group_ids.name
     TokenLimit        = var.token_limit
   })
 }
@@ -159,6 +170,7 @@ resource "azurerm_api_management_api_operation_policy" "openai_embedd_opration" 
   xml_content = templatefile("${path.module}/files/policy/aoai_operation_v2.xml", {
     AIS-MI-CLIENT-ID  = azurerm_api_management_named_value.ais-mi-client-id.name
     OpenAIBackendPool = azurerm_api_management_named_value.openai_backend_pool.name
+    OpenAiOpsGroupIds = azurerm_api_management_named_value.ops_group_ids.name
     TokenLimit        = var.token_limit
   })
 }

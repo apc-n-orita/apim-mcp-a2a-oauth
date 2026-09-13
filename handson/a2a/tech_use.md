@@ -185,6 +185,19 @@ Two options exist for the human side:
 - By combining with **Entra ID Conditional Access**, multi-layered security policies can be applied based on device state, network location, and sign-in risk. Token issuance for the `a2a-agent` application (`api://{a2a-oauth-app-id}`) can be gated by Conditional Access before the APIM policy ever sees the request — authorization then happens at two independent layers (token issuance conditions + App Role check).
 - For **Agent Identities** (each Foundry agent in this setup receives its own Entra ID identity and blueprint), applying policies at the blueprint level enables bulk protection of all agents of the same type.
 
+## Supplementary: Foundry Guardrails
+
+Besides the APIM-side access control described above, Microsoft Foundry lets you configure **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)) directly on the `a2a-agent` — via the Foundry portal, the RAI Policies REST API, or as Terraform (a guardrail is a `Microsoft.CognitiveServices/accounts/raiPolicies` resource, deployable through the `azapi` provider). A guardrail only takes effect once it's assigned to the agent — `rai_config.rai_policy_name` on the agent definition (or the portal's "Add agents" step). A guardrail can add checks such as harmful content (hate/violence/sexual/self-harm), prompt injection, and a **PII detection (Preview)** category that blocks (or annotates) the entire output, applied at any of the four intervention points available to agents:
+
+| Intervention point | What is scanned |
+|---|---|
+| User input | The prompt sent to the agent |
+| Tool call (Preview) | The action/data the agent proposes to send to a tool |
+| Tool response (Preview) | The content returned from a tool back to the agent |
+| Output | The final completion returned to the caller |
+
+The role is different from the APIM-side access control above: APIM decides *who* may call the agent, while guardrails check *what content* passes through afterward (harmful content, PII, etc.). Combining both — access control at the gateway and guardrails at the agent — covers both sides.
+
 ## Next
 
 With both hands-on tracks complete, see the root README's [A Note on Where This Sits](../../README.md#a-note-on-where-this-sits) for how this repository fits into the larger arc.
