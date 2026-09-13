@@ -28,13 +28,14 @@
 | [azurerm_api_management_api_policy.openai](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_api_policy) | resource |
 | [azurerm_api_management_named_value.ais-mi-client-id](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_named_value) | resource |
 | [azurerm_api_management_named_value.openai_backend_pool](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_named_value) | resource |
+| [azurerm_api_management_named_value.ops_group_ids](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/api_management_named_value) | resource |
 | [azurerm_role_assignment.openai](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/role_assignment) | resource |
 
 ## Inputs
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_ais_mi_client_id"></a> [ais\_mi\_client\_id](#input\_ais\_mi\_client\_id) | AI Services Managed Identity Client ID for APIM named value | `string` | n/a | yes |
+| <a name="input_ais_mi_client_id"></a> [ais\_mi\_client\_id](#input\_ais\_mi\_client\_id) | AI Search Managed Identity Client ID for APIM named value | `string` | n/a | yes |
 | <a name="input_api_management_id"></a> [api\_management\_id](#input\_api\_management\_id) | API Management resource ID (for backend parent\_id) | `string` | n/a | yes |
 | <a name="input_api_management_logger_id"></a> [api\_management\_logger\_id](#input\_api\_management\_logger\_id) | n/a | `string` | n/a | yes |
 | <a name="input_api_management_name"></a> [api\_management\_name](#input\_api\_management\_name) | n/a | `any` | n/a | yes |
@@ -45,6 +46,7 @@
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | n/a | `any` | n/a | yes |
 | <a name="input_token_limit"></a> [token\_limit](#input\_token\_limit) | Tokens per minute limit for OpenAI API (used in llm-token-limit policy) | `number` | n/a | yes |
 | <a name="input_diagnostic_sampling_percentage"></a> [diagnostic\_sampling\_percentage](#input\_diagnostic\_sampling\_percentage) | APIM診断のサンプリング率（0.0 〜 100.0）。本番環境では 20.0 〜 50.0 を推奨。 | `number` | `100` | no |
+| <a name="input_ops_group_ids"></a> [ops\_group\_ids](#input\_ops\_group\_ids) | Entra ID group object ID(s) allowed to call this API directly (empty = no group allowed) | `list(string)` | `[]` | no |
 
 ## Outputs
 

@@ -30,6 +30,7 @@
 | <a name="module_ai_foundry"></a> [ai\_foundry](#module\_ai\_foundry) | ./modules/ai/aiservice | n/a |
 | <a name="module_ai_search"></a> [ai\_search](#module\_ai\_search) | ./modules/ai/aisearch | n/a |
 | <a name="module_apim_a2a_agent"></a> [apim\_a2a\_agent](#module\_apim\_a2a\_agent) | ./modules/gateway/apim-api/a2a-agent | n/a |
+| <a name="module_apim_api_cognitiveservices"></a> [apim\_api\_cognitiveservices](#module\_apim\_api\_cognitiveservices) | ./modules/gateway/apim-api/cognitiveservices | n/a |
 | <a name="module_apim_api_openai"></a> [apim\_api\_openai](#module\_apim\_api\_openai) | ./modules/gateway/apim-api/openai | n/a |
 | <a name="module_apim_toolbox"></a> [apim\_toolbox](#module\_apim\_toolbox) | ./modules/gateway/apim-api/toolbox | n/a |
 | <a name="module_foundryiq_acl_mcp"></a> [foundryiq\_acl\_mcp](#module\_foundryiq\_acl\_mcp) | ./modules/app/function/app | n/a |
@@ -105,6 +106,7 @@
 | [time_sleep.wait_verify_project_identities](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [azuread_application.mcp_oauth](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/application) | data source |
 | [azuread_client_config.current](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/client_config) | data source |
+| [azuread_group.ops_mcp_access](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/group) | data source |
 | [azuread_service_principal.ai_search](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/service_principal) | data source |
 | [azurerm_api_management.apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/api_management) | data source |
 | [azurerm_api_management_api.oauth](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/api_management_api) | data source |
@@ -146,6 +148,7 @@
 | <a name="output_FOUNDRYIQ_ACL_MCP_APIM_URL"></a> [FOUNDRYIQ\_ACL\_MCP\_APIM\_URL](#output\_FOUNDRYIQ\_ACL\_MCP\_APIM\_URL) | APIM-fronted MCP endpoint of the foundryiq-acl-mcp Function (Authorization: audience https://search.azure.com) |
 | <a name="output_FOUNDRY_A2A_BACKEND_URLS"></a> [FOUNDRY\_A2A\_BACKEND\_URLS](#output\_FOUNDRY\_A2A\_BACKEND\_URLS) | Direct A2A base paths of the tartaria-agent on each Foundry project |
 | <a name="output_FOUNDRY_PROJECT_ENDPOINTS"></a> [FOUNDRY\_PROJECT\_ENDPOINTS](#output\_FOUNDRY\_PROJECT\_ENDPOINTS) | Endpoints of the AI Foundry projects hosting the tartaria-agent |
+| <a name="output_LANGUAGE_ENDPOINT"></a> [LANGUAGE\_ENDPOINT](#output\_LANGUAGE\_ENDPOINT) | APIM-fronted Cognitive Services endpoint for LANGUAGE\_ENDPOINT (e.g. Azure AI Language PII detection at /language/:analyze-text); keyless (Entra ID + Cognitive Services User RBAC), audience https://cognitiveservices.azure.com/ |
 | <a name="output_REDIS_HOSTNAME"></a> [REDIS\_HOSTNAME](#output\_REDIS\_HOSTNAME) | Hostname of the Managed Redis instance used as the APIM external cache (sticky backend assignments) |
 | <a name="output_SEARCH_SERVICE_NAME"></a> [SEARCH\_SERVICE\_NAME](#output\_SEARCH\_SERVICE\_NAME) | Name of the Azure AI Search service hosting the Foundry IQ knowledge base |
 | <a name="output_TOOLBOX_APIM_URL"></a> [TOOLBOX\_APIM\_URL](#output\_TOOLBOX\_APIM\_URL) | APIM-fronted toolbox MCP endpoint (oid-sticky load balanced across Foundry backends; client Authorization token is passed through unchanged to preserve foundryiqmcp's UserEntraToken OBO) |
