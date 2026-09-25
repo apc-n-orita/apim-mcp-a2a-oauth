@@ -52,8 +52,7 @@ locals {
   }
 
   # Knowledge Base の MCP エンドポイント (FoundryIQ 接続・エージェントの MCP ツールが参照)
-  kb_mcp_url     = "https://${module.ai_search.search_service_name}.search.windows.net/knowledgebases/${local.knowledge.knowledge_base_name}/mcp?api-version=2026-04-01"
-  kb_mcp_url_acl = "https://${module.ai_search.search_service_name}.search.windows.net/knowledgebases/${local.knowledge_acl.knowledge_base_name}/mcp?api-version=2026-04-01"
+  kb_mcp_url = "https://${module.ai_search.search_service_name}.search.windows.net/knowledgebases/${local.knowledge.knowledge_base_name}/mcp?api-version=2026-08-01-preview"
 
   # AI Search のベクトライザーが参照する OpenAI エンドポイント
   # (APIM 経由: apim_api_openai モジュールの openai API がバックエンドの Foundry に LB する)
