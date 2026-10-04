@@ -1074,6 +1074,10 @@ module "foundryiq_acl_mcp" {
       value = "1"
     },
     {
+      name  = "APPLICATIONINSIGHTS_METRIC_NAMESPACE_OPT_IN"
+      value = "true"
+    },
+    {
       name  = "SEARCH_ENDPOINT"
       value = "https://${module.ai_search.search_service_name}.search.windows.net"
     },

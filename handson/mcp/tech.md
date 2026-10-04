@@ -82,7 +82,20 @@ return KnowledgeBaseRetrievalRequest(
 
 ### Observability
 
-**Token usage is recorded as span attributes, not log lines.** After summing each retrieval activity entry, token counts are set directly as span attributes (`kb.llm_input_tokens`, `kb.llm_output_tokens`, `kb.llm_total_tokens`, `kb.reasoning_tokens`).
+**Token usage is recorded as span attributes, not log lines.** After summing each retrieval activity entry, token counts are set directly as span attributes (`kb.llm_input_tokens`, `kb.llm_output_tokens`, `kb.llm_total_tokens`, `kb.reasoning_tokens`). Use them to see the breakdown of a single request.
+
+**Token usage is also recorded as metrics, so cost totals aren't lost to trace sampling.** Token consumption drives this tool's cost, so the totals must be accurate. A span that's sampled out takes its token counts with it, but OpenTelemetry metrics are [preaggregated in the SDK and unaffected by sampling](https://learn.microsoft.com/azure/azure-monitor/app/metrics-overview#metrics-preaggregation). `_log_activity` therefore also adds the same values to counters: `kb.llm_input_tokens`, `kb.llm_output_tokens` and `kb.llm_total_tokens` (billed by Azure OpenAI), and `kb.reasoning_tokens` (billed by Azure AI Search, so kept separate).
+
+- The only dimension is `kb.name` — never user IDs or query text.
+- Use the metrics for totals and alerts, and the span attributes for a single request's breakdown. With `APPLICATIONINSIGHTS_METRIC_NAMESPACE_OPT_IN=true` (set in `infra/main.tf`), Metrics Explorer groups them under the `foundryiq_acl_mcp.kb_client` namespace; the raw points are in the `customMetrics` table.
+
+```kusto
+// Tokens per knowledge base per hour (rows are preaggregated, so sum valueSum)
+customMetrics
+| where name in ("kb.llm_total_tokens", "kb.reasoning_tokens")
+| summarize tokens = sum(valueSum) by name, kb = tostring(customDimensions["kb.name"]), bin(timestamp, 1h)
+| order by timestamp desc
+```
 
 **Per-source retrieval failures are walked explicitly, because they don't raise.** When Azure AI Search fails to retrieve from one knowledge source among several, it returns that as an entry-level error inside the response's activity array — HTTP 206 Partial Content — not as an exception. Without explicitly inspecting each activity entry's `error` field and logging a warning, a partial failure ("some knowledge sources silently didn't return results") would go completely unnoticed.
 

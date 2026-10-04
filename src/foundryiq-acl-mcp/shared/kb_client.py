@@ -99,6 +99,7 @@ from azure.search.documents.knowledgebases.models import (
     KnowledgeRetrievalOutputMode,
     KnowledgeRetrievalSemanticIntent,
 )
+from shared.telemetry import get_meter
 
 _logger = logging.getLogger(__name__)
 
@@ -149,6 +150,44 @@ _credential = DefaultAzureCredential()
 # ナレッジベース名ごとにクライアントをキャッシュする。
 # 将来 1 つの Function で複数のナレッジベースを扱う場合に備えた形。
 _clients: dict = {}
+
+# トークン消費のメトリック (OpenTelemetry Counter)。
+# 課金に関わる合計はメトリックを正とし、1 リクエストごとの内訳はスパン属性で見る。
+# メトリックの性質 (サンプリングの影響を受けない、ディメンションの保存など) は
+# shared/telemetry.py の get_meter() を参照。
+#
+# メーター名は、メトリックエクスプローラーの名前空間になる (infra/main.tf で
+# APPLICATIONINSIGHTS_METRIC_NAMESPACE_OPT_IN=true を設定済み)。デプロイ済みの
+# 名前空間と揃えるため、固定の文字列にする。変えると別の名前空間になる。
+# ディメンションは kb.name だけに絞る (ユーザー ID やクエリ本文は付けない)。
+_meter = get_meter("foundryiq_acl_mcp.kb_client")
+
+# Azure OpenAI 側に請求される LLM トークン (query planning / answer synthesis /
+# web summarization)。
+_llm_input_tokens = _meter.create_counter(
+    "kb.llm_input_tokens",
+    unit="{token}",
+    description="LLM input tokens billed to Azure OpenAI by knowledge base retrieval.",
+)
+_llm_output_tokens = _meter.create_counter(
+    "kb.llm_output_tokens",
+    unit="{token}",
+    description="LLM output tokens billed to Azure OpenAI by knowledge base retrieval.",
+)
+# input + output の合計。Sum の集計は 1 つの系列で足りるため、メトリックを
+# 2 つ足し合わせる必要がなく、アラートや集計をそのまま書ける。
+_llm_total_tokens = _meter.create_counter(
+    "kb.llm_total_tokens",
+    unit="{token}",
+    description="LLM input + output tokens billed to Azure OpenAI by knowledge base retrieval.",
+)
+# Azure AI Search 側に請求される検索トークン。単価が異なるため LLM トークンとは
+# 別のメトリックにし、llm_total_tokens には含めない。
+_reasoning_tokens = _meter.create_counter(
+    "kb.reasoning_tokens",
+    unit="{token}",
+    description="Agentic reasoning tokens billed to Azure AI Search by knowledge base retrieval.",
+)
 
 
 def is_configured() -> bool:
@@ -250,7 +289,11 @@ def _log_activity(result, kb_name: str, span) -> None:
     _logger.info(...) はハンドラに届く前に握り潰され、Application Insights に
     一切送信されない (samplecodes/foundryiq_acl_local での実行で確認済み)。
     span 属性はログレベルに影響されず、dependencies テーブルの
-    customDimensions として確実に届く。
+    customDimensions として届く。ただしスパンはトレースのサンプリングで
+    落ちうる (azure-monitor-opentelemetry 1.8.6 以降は既定で 5 トレース/秒)。
+    そのため、トークン消費は同じ値をメトリック (モジュール上部の Counter) にも
+    記録する。メトリックは事前集計され、サンプリングの影響を受けない。
+    合計 (課金・アラート) はメトリックを、1 リクエストごとの内訳はスパンを見る。
     部分失敗の警告 (下記の _logger.warning) は WARNING レベルなので影響を受けず、
     従来通りログのままにしている。
 
@@ -330,6 +373,14 @@ def _log_activity(result, kb_name: str, span) -> None:
     span.set_attribute("kb.llm_total_tokens", total_input + total_output)
     # Azure AI Search 側に請求される検索トークン。単価が異なるため llm_total_tokens には含めない。
     span.set_attribute("kb.reasoning_tokens", total_reasoning)
+
+    # 同じ値をメトリックにも記録する。スパンはサンプリングで落ちうるが、
+    # メトリックは事前集計されるため、課金に関わる合計はこちらが正になる。
+    attributes = {"kb.name": kb_name}
+    _llm_input_tokens.add(total_input, attributes)
+    _llm_output_tokens.add(total_output, attributes)
+    _llm_total_tokens.add(total_input + total_output, attributes)
+    _reasoning_tokens.add(total_reasoning, attributes)
 
 
 def retrieve(
