@@ -1,7 +1,8 @@
 """OpenTelemetry / Application Insights の初期化
 
 function_app.py の import 時に configure() を一度だけ呼ぶ。
-tracer は各モジュールから get_tracer() で取得する。
+tracer は各モジュールから get_tracer() で、
+meter (メトリック) は get_meter() で取得する。
 
 環境変数:
   APPLICATIONINSIGHTS_CONNECTION_STRING  未設定なら送信を行わず標準の logging に流れる
@@ -11,7 +12,7 @@ import logging
 import os
 
 from azure.monitor.opentelemetry import configure_azure_monitor
-from opentelemetry import trace
+from opentelemetry import metrics, trace
 
 _configured = False
 
@@ -72,3 +73,35 @@ def configure() -> None:
 def get_tracer(name: str):
     """モジュール単位の tracer を返す"""
     return trace.get_tracer(name)
+
+
+def get_meter(name: str):
+    """メトリック用の meter を返す
+
+    name には固定の文字列を渡す (__name__ は、モジュールの配置で変わるため使わない)。
+    アプリ設定 APPLICATIONINSIGHTS_METRIC_NAMESPACE_OPT_IN=true のとき、name が
+    メトリックエクスプローラーの名前空間になる。後から変えると、既存のメトリックとは
+    別の名前空間になる。未設定だと、すべて既定の名前空間 azure.applicationinsights に入る。
+
+    configure() より前に呼んでもよい。そのとき作った instrument は、後から
+    MeterProvider が設定されると、以降の記録がそちらへ引き継がれる
+    (OpenTelemetry の proxy instrument。設定前の値は捨てられる)。
+    接続文字列が無く configure_azure_monitor() が走らない環境では、何も記録されない
+    (エラーにはならない)。
+
+    メトリックの性質 (Azure Monitor):
+      - SDK 側で事前集計されるため、トレースのサンプリングで落ちない。
+        azure-monitor-opentelemetry 1.8.6 以降の既定は 5 トレース/秒の
+        RateLimitedSampler で、サンプラーを変えない限り、負荷時にスパンが落ちる。
+        課金や集計の合計は、スパン属性ではなくメトリックを正とする。
+        参考: https://learn.microsoft.com/azure/azure-monitor/app/metrics-overview#metrics-preaggregation
+      - Counter の集計方法は Sum。
+      - 事前集計されたメトリックにディメンションを残すのは preview 機能で、既定では
+        ディメンションなしで保存される (customMetrics テーブルには常に残る)。
+        残すには Application Insights の「使用量と推定コスト」で
+        「Send custom metrics to Azure Metric Store」を「With dimensions」にする
+        (別料金)。
+      - ディメンションには、値の種類が少ないものだけを使う。ユーザー ID やクエリ本文の
+        ような値は、系列数 (カーディナリティ) が増え、個人情報にもなる。
+    """
+    return metrics.get_meter_provider().get_meter(name)
