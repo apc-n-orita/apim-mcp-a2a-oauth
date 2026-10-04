@@ -182,10 +182,7 @@ Two options exist for the human side:
 
 ## Enhanced Security
 
-- By combining with **Entra ID Conditional Access**, multi-layered security policies can be applied based on device state, network location, and sign-in risk. Token issuance for the `a2a-agent` application (`api://{a2a-oauth-app-id}`) can be gated by Conditional Access before the APIM policy ever sees the request — authorization then happens at two independent layers (token issuance conditions + App Role check).
-- For **Agent Identities** (each Foundry agent in this setup receives its own Entra ID identity and blueprint), applying policies at the blueprint level enables bulk protection of all agents of the same type.
-
-## Supplementary: Foundry Guardrails
+### Foundry Guardrails
 
 Besides the APIM-side access control described above, Microsoft Foundry lets you configure **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)) directly on the `a2a-agent` — via the Foundry portal, the RAI Policies REST API, or as Terraform (a guardrail is a `Microsoft.CognitiveServices/accounts/raiPolicies` resource, deployable through the `azapi` provider). A guardrail only takes effect once it's assigned to the agent — `rai_config.rai_policy_name` on the agent definition (or the portal's "Add agents" step). A guardrail can add checks such as harmful content (hate/violence/sexual/self-harm), prompt injection, and a **PII detection (Preview)** category that blocks (or annotates) the entire output, applied at any of the four intervention points available to agents:
 
@@ -197,6 +194,26 @@ Besides the APIM-side access control described above, Microsoft Foundry lets you
 | Output | The final completion returned to the caller |
 
 The role is different from the APIM-side access control above: APIM decides *who* may call the agent, while guardrails check *what content* passes through afterward (harmful content, PII, etc.). Combining both — access control at the gateway and guardrails at the agent — covers both sides.
+
+### Conditional Access
+
+Entra ID **Conditional Access** adds a second, independent layer in front of the App Role check described above: it is evaluated when Entra ID issues or refreshes an access token, so it can gate _who obtains a token_ for the `a2a-agent` application's audience (`api://{a2a-oauth-app-id}/`) before APIM's `validate-azure-ad-token` ever sees the request. Policies can use conditions such as **Microsoft Entra ID Protection** risk (sign-in risk and user risk; requires Entra ID P2) and **network restrictions** (trusted locations) ([risk-based access policies](https://learn.microsoft.com/entra/id-protection/concept-identity-protection-policies), [network assignment](https://learn.microsoft.com/entra/identity/conditional-access/concept-assignment-network)).
+
+- **Policies target the resource (the token's audience), not the client.** Conditional Access applies to the service being called, so the policy is set on the resource behind the audience, not on whichever A2A client calls it ([target resources](https://learn.microsoft.com/entra/identity/conditional-access/concept-conditional-access-cloud-apps)).
+- **It is evaluated at token issuance, not on every call.** A token that was already issued keeps working until it expires (60 to 90 minutes by default), unless the resource supports [Continuous Access Evaluation](https://learn.microsoft.com/entra/identity/conditional-access/concept-continuous-access-evaluation). Treat it as a complement to the App Role check and the keyless, RBAC-only Foundry access above, not a replacement.
+- **Agent identities have their own policy target.** The policies above apply to users getting a token for the `a2a-agent` audience. When an agent accesses a resource with its own agent identity (not on behalf of a user), Conditional Access can target that **agent identity** or its **agent identity blueprint** instead; a policy on a blueprint covers every agent identity created from it, including ones added later, so agents of the same type are protected in bulk. For agent identities the available condition is **agent risk (Preview)** from ID Protection, and Conditional Access for agents requires Microsoft 365 E7, or an Agent 365 license paired with at least Entra ID P1 or Microsoft 365 E3 ([Conditional Access for agents](https://learn.microsoft.com/entra/identity/conditional-access/agent-id)).
+
+### Agent Threat Detection (Microsoft Defender with Agent 365)
+
+Guardrails *block* content; they don't tell your security team that someone is attacking. For Foundry agents, detection and posture management are provided by Microsoft Defender and require a **[Microsoft Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview)**-eligible license. Since July 1, 2026, agent-level capabilities that used to come with Defender for Cloud (Defender CSPM and the Defender for AI Services plan) require that license ([transition guide](https://learn.microsoft.com/defender-xdr/security-for-ai/transition-agent-security-to-agent-365)). Defender for AI Services continues to cover Foundry Models such as Azure OpenAI.
+
+With the license, the following are available in the Microsoft Defender portal:
+
+- **Agent discovery and posture.** Foundry agents appear in a central AI agent inventory with risk levels, risk indicators, recommendations, tools, and identities; the same data can be queried in Advanced Hunting (`AgentsInfo` table) ([AI agent inventory](https://learn.microsoft.com/defender-xdr/security-for-ai/ai-agent-inventory)).
+- **Threat detection (preview).** Defender analyzes runtime signals — agent interactions, tool usage, execution patterns — and raises near-real-time alerts for jailbreak attempts, indirect prompt injection (XPIA), secret and credential leakage, LLM reconnaissance, and suspicious user or IP access. Alerts can be investigated through incidents and Advanced Hunting ([detect and investigate threats to AI agents](https://learn.microsoft.com/defender-xdr/security-for-ai/ai-agent-detection-protection)).
+- **Observability data flows automatically.** Agents built on Foundry send observability data to Agent 365 once the tenant has a trial or an active license; no extra steps are needed on the agent side ([data handling](https://learn.microsoft.com/microsoft-agent-365/admin/data-residency-protection-compliance)).
+
+This complements the guardrail on the agent: the guardrail prevents, and Defender gives your security team visibility and a place to investigate. Agent 365 is licensed per user, and new purchases require a prerequisite license (for example Microsoft 365 E5) — see the [overview](https://learn.microsoft.com/microsoft-agent-365/overview) for current plans and the 30-day trial.
 
 ## Next
 
