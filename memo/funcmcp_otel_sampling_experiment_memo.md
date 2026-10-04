@@ -3,7 +3,7 @@
 実施日: 2026-10-04
 対象: `src/foundryiq-acl-mcp` (Azure Functions の MCP ツール。Python、`azure-monitor-opentelemetry` 1.8.6)
 結論: **トレースのサンプリングを 0% にしても、`_logger.exception` の例外ログも、トークン量のメトリックも落ちなかった。**
-(実験は小規模 (例外 3 件、検索 3 回)。傾向の確認であり、統計的な保証ではない)
+(実験は小規模で、例外 3 件、検索 3 回。傾向の確認であり、統計的な保証ではない)
 
 ## 1. 背景
 
@@ -24,7 +24,7 @@ https://www.reddit.com/r/dotnet/comments/1lrm56k/azure_monitor_opentelemetry_exc
 ### 1.3 事前に分かっていたこと (Learn とソース)
 
 - サンプリングの判断は、トレース (スパン) に対して行われる。メトリックはサンプリングされない。
-- Python では、`enable_trace_based_sampling_for_logs` の既定は `False` (1.8.6 のソースで確認)。`True` のときだけ、サンプリングされなかったトレースに属するログが落ちる。
+- Python では、`enable_trace_based_sampling_for_logs` の既定は `False` (1.8.6 と、最新の 1.8.10 のソースで確認)。`True` のときだけ、サンプリングされなかったトレースに属するログが落ちる。
 - このアプリは、`telemetry.py` で `enable_trace_based_sampling_for_logs=False` を、既定値と同じ値で、明示している (バージョンの変化に備えるため)。
 - `telemetryMode` が `OpenTelemetry` のとき、`host.json` の `logging.applicationInsights.samplingSettings` (例: `excludedTypes: "Exception"`) は効かない (Learn に明記)。
 
@@ -111,8 +111,10 @@ https://www.reddit.com/r/dotnet/comments/1lrm56k/azure_monitor_opentelemetry_exc
 
 ## 5. 補足と未解明の点
 
+### 5.1 メトリックの回数の判断
+
 - 3 回の検索が、同じ 1 分の送信間隔に入ったため、メトリックは 1 つのデータポイント (`valueCount=1`) に集約された。`valueCount` は、`add()` を呼んだ回数ではなく、送信間隔ごとの集約ポイントの数なので、回数は、メトリックだけでは分からない。「3 回ぶん記録された」という判断は、次の 2 つを合わせて行った。
-  1. **APIM 側のリクエスト数 (回数の根拠)**: APIM は 100% で記録されるので、実験中の呼び出し回数を、そのまま数えられる。実験 2 の開始時刻以降の、Function への MCP のリクエストが、ちょうど 3 件 (すべて 200)。MCP クライアントは、同じセッションを使い回していて、この時間帯に、ほかの MCP の呼び出しはなかった。
+  1. **APIM 側のリクエスト数 (回数の根拠)**: APIM は 100% で記録されるので、実験中の呼び出し回数を、そのまま数えられる。実験 2 の開始時刻以降の、Function への MCP のリクエストが、ちょうど 3 件 (すべて 200)。MCP クライアントは、同じセッションを使い回していて、この時間帯の APIM 側には、ほかの MCP の呼び出しの記録はなかった。
      ```kusto
      requests
      | where timestamp > datetime(<開始時刻>)
@@ -121,8 +123,10 @@ https://www.reddit.com/r/dotnet/comments/1lrm56k/azure_monitor_opentelemetry_exc
      ```
   2. **合計の大きさ (値の裏付け)**: サンプリング 100% のときに、スパン属性とメトリックの一致を確認した 1 回あたりの実測が、LLM 合計 1061 と 1075、reasoning 68131 と 70633。実験 2 の合計 (LLM 合計 3183、reasoning 204656) を 3 で割ると、1061 と 68219 で、その範囲に入る。1 回だけ、または 2 回だけなら、この大きさにはならない。
 - 実験 2 では、スパンが落ちているため、「スパン属性の値とメトリックの値が一致する」ことは確認できない。これは、サンプリング 100% のとき、別に確認済み (入力 1011 / 出力 50 / 合計 1061 / reasoning 68131 が、スパン属性とメトリックで一致)。
+### 5.2 Function 側の `requests` が少ない件
+
 - Function 側の `requests` (`POST /runtime/webhooks/mcp`) は、実験 1 で 3 件、実験 2 で 1 件のみで、2 回目以降の呼び出しに対応するものが見当たらない。**原因は不明。** 結論には影響しない。
-  - 参考データ (今日の `POST` の MCP リクエストを、10 分ごとに、APIM 側 (100% で記録) と Function 側で比較):
+  - 参考データ (実施日の `POST` の MCP リクエストを、10 分ごとに、APIM 側 (100% で記録) と Function 側で比較):
 
     | 時間帯 (UTC) | APIM 側 | Function 側 | 状況 |
     |---|---|---|---|
@@ -140,10 +144,12 @@ https://www.reddit.com/r/dotnet/comments/1lrm56k/azure_monitor_opentelemetry_exc
     - 2 回目、3 回目の呼び出しに対応する Function 側の行は、存在しない。
     - つまり、「3 回が 1 行に集約された」のではなく、「**1 回目だけが記録され、2 回目、3 回目は記録されなかった**」というデータになっている。
   - `requests` は、メトリックのように、送信間隔ごとに集約されるテレメトリではない (Learn: スパンは `requests` / `dependencies` テーブルに 1 スパン 1 行で保存される)。ただし、サンプリング時は、`itemCount` で、1 行が複数件を表すことがある (例: 25% なら、残った 1 行が 4 件ぶん)。今回の行は `itemCount=1` なので、これには当たらない。
-  - 「3 回の検索が、メトリックでは、1 つのデータポイントに集約されて記録されたこと」とのつながりは、上のとおり、集約の仮説は、データから支持されない。
+  - 「3 回の検索が、メトリックでは、1 つのデータポイントに集約されて記録されたこと」と関係があるのではないか、という見方は、上のデータからは支持されない (集約ではなく、1 回目だけが記録されている)。
   - **仮説 (有力。未確認)**: 「再起動後の最初のリクエストだけが、記録される」。サンプラーの設定 (0%) が、起動の途中で反映されるため、最初のリクエストだけが、反映前の設定 (100%) で処理された可能性がある。
     - 当てはまる点: 実験 1 でも、Function 側の記録は、再起動直後の最初のリクエスト群だけ (16:37:40、:46、:50 の 3 件)。実験 2 でも、最初の 1 回目だけ。どちらも、2 回目以降の呼び出しは、記録されていない。
     - 当てはまらない点、未確認の点: 実験 1 では、2 回目のワーカーの起動 (16:37:48 ごろ) の後の、16:37:50 のリクエストも記録されており、「設定が反映される前」だけでは、きれいに説明できない。再起動を挟まずに、時間をおいて、複数回呼び出す確認は、していない。
+### 5.3 起動時の警告と、コードを変更しない理由
+
 - 起動時の警告 (`Overriding of current MeterProvider / TracerProvider / LoggerProvider is not allowed`、`Attempting to instrument while already instrumented`) が出る。`PYTHON_APPLICATIONINSIGHTS_ENABLE_TELEMETRY=true` により、Functions のワーカーが先にプロバイダーを設定し、コード側の `configure_azure_monitor()` の設定が、上書きできていない可能性がある。`OTEL_TRACES_SAMPLER` の環境変数は、実際に効いていた (スパンが 0 件)。
   - **コードは変更しない。** 理由:
     - ライブラリ `azure-monitor-opentelemetry` の 1.8.6 以降では、既定でログのサンプリング (`configure_azure_monitor()` の引数 `enable_trace_based_sampling_for_logs`) は `False`。`requirements.txt` は `azure-monitor-opentelemetry>=1.8.6`。確認したのは、インストール済みの 1.8.6 のソースと、PyPI の最新である 1.8.10 のソース (どちらも `_utils/configurations.py` の `_default_enable_trace_based_sampling` が `False`)。1.8.7〜1.8.9 は確認していない。
