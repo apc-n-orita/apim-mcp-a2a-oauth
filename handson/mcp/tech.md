@@ -109,7 +109,9 @@ logging.getLogger("azure.monitor.opentelemetry.exporter.export._base").setLevel(
 logging.getLogger("azure.identity").setLevel(logging.WARNING)
 ```
 
-## Supplementary: Foundry Guardrails
+## Enhanced Security
+
+### Foundry Guardrails
 
 A `toolbox` version can carry its own Microsoft Foundry **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)). The RAI policy itself is configured in the Foundry portal, via the RAI Policies REST API, or as Terraform (`Microsoft.CognitiveServices/accounts/raiPolicies` via the `azapi` provider); the toolbox version then references that policy by name via `policies.rai_config.rai_policy_name` when it's created or updated.
 
@@ -145,6 +147,13 @@ The toolbox's guardrail sits at the boundary between `toolbox` and the MCP serve
 - **Output**: the grounding text extracted from Foundry IQ's response, before it's returned to the MCP caller — masks PII that lives in the indexed source documents themselves, which would otherwise surface verbatim in the tool's result.
 
 The two points are independent — mask the query alone, the output alone, or both, depending on which side the risk is judged to matter more.
+
+### Conditional Access
+
+Entra ID **Conditional Access** adds a second, independent layer in front of the audience check described above: it is evaluated when Entra ID issues or refreshes an access token, so it can gate _who obtains a token_ for each MCP server's audience (`https://search.azure.com/` for `foundryiq-acl-mcp`, `https://ai.azure.com/` for `toolbox`) before APIM's `validate-azure-ad-token` ever sees the request. Policies can use conditions such as **Microsoft Entra ID Protection** risk (sign-in risk and user risk; requires Entra ID P2) and **network restrictions** (trusted locations) ([risk-based access policies](https://learn.microsoft.com/entra/id-protection/concept-identity-protection-policies), [network assignment](https://learn.microsoft.com/entra/identity/conditional-access/concept-assignment-network)).
+
+- **Policies target the resource (the token's audience), not the client.** Conditional Access applies to the service being called, so the policy is set on the resource behind each audience, not on Claude, GitHub Copilot, or any other MCP client ([target resources](https://learn.microsoft.com/entra/identity/conditional-access/concept-conditional-access-cloud-apps)). Some resources don't appear in the policy's app picker; in that case the service principal has to be added to the tenant, or the policy has to target **All resources**.
+- **It is evaluated at token issuance, not on every call.** Conditional Access doesn't close the `toolbox` gap by itself: a token that was already issued keeps working until it expires (60 to 90 minutes by default), unless the resource supports [Continuous Access Evaluation](https://learn.microsoft.com/entra/identity/conditional-access/concept-continuous-access-evaluation). Treat it as a complement to the network lock-down and the **Foundry Agent Consumer** role above, not a replacement.
 
 ## See also
 
