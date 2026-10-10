@@ -45,6 +45,14 @@ Two ways to close that gap, not mutually exclusive:
 
 Per the [Foundry RBAC guidance](https://learn.microsoft.com/azure/foundry/concepts/rbac-foundry#minimum-role-assignments-to-get-started): *"If a user or service principal only needs to interact with agents ... without creating or modifying them, assign Foundry Agent Consumer instead of Foundry User."* Assigning **Foundry Agent Consumer** instead of Foundry User on `toolbox-project` means a valid token — however it was obtained — can only invoke agents/tools, not manage the project, deployments, or other resources.
 
+## Content Safety (APIM)
+
+Each MCP API (`toolbox`, `foundryiq-acl-mcp`) runs the APIM [`llm-content-safety`](https://learn.microsoft.com/azure/api-management/llm-content-safety-policy) policy in `inbound`, right after `validate-azure-ad-token`. It screens the request for the four harm categories (Hate / SelfHarm / Sexual / Violence, threshold 4) and for prompt attacks (`shield-prompt="true"`). A blocked request is rejected at the gateway with `403`, before it reaches the MCP backend.
+
+The policy needs a Content Safety-compatible backend. Instead of provisioning a dedicated Content Safety resource, the `content-safety-backend` points at APIM's own `cognitiveservices` API (`${gateway_url}/cognitiveservices`), which forwards to the Foundry accounts' `*.cognitiveservices.azure.com` endpoint (the Foundry endpoint also exposes the Content Safety APIs). APIM authenticates with its managed identity, which is added to that API's caller allow-list (`mi_client_ids`).
+
+Limit: request side only (responses are not screened).
+
 ## Load Balancing (with Redis)
 
 `toolbox` uses the same per-caller sticky routing and retry/failover mechanism described in [a2a's Technical Details](../a2a/tech_use.md#load-balancing-with-redis) — `oid` → Redis-backed backend assignment, TTL 24h, failover on repeated 5xx/429/JSON-RPC-shaped errors. The only differences are the Redis key prefix (`toolbox-backend-oid-{oid}` instead of `a2a-backend-oid-{oid}`) and that failover never swaps the passthrough authentication described above, even on a retry to a different backend.
@@ -110,56 +118,6 @@ logging.getLogger("azure.identity").setLevel(logging.WARNING)
 ```
 
 ## Enhanced Security
-
-### Foundry Guardrails
-
-Microsoft Foundry **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)) can be assigned at two places in this setup: the `toolbox`, and the model deployments behind Foundry IQ.
-
-#### Guardrails on the toolbox
-
-A `toolbox` version can carry its own guardrail. The RAI policy itself is configured in the Foundry portal, via the RAI Policies REST API, or as Terraform (`Microsoft.CognitiveServices/accounts/raiPolicies` via the `azapi` provider); the toolbox version then references that policy by name via `policies.rai_config.rai_policy_name` when it's created or updated.
-
-Only a subset of guardrails can be assigned this way: a guardrail is offered as an option for a toolbox only when it has at least one content filter whose intervention point is one of these two:
-
-| Intervention point      | What is scanned                                      |
-| ----------------------- | ---------------------------------------------------- |
-| Tool call (Preview)     | The action/data `toolbox` proposes to send to a tool |
-| Tool response (Preview) | The content returned from a tool back to `toolbox`   |
-
-Besides the usual harmful-content and prompt-injection checks, guardrails include a **PII detection (Preview)** category that can block or annotate personal information passing through.
-
-The role is different from the access control above: `validate-azure-ad-token` and token passthrough decide _who_ may call `toolbox`, while the toolbox's guardrail checks _what content_ crosses the tool boundary afterward (harmful content, PII, etc.). Combining both — access control at the gateway and a guardrail on the toolbox version — covers both sides.
-
-#### Guardrails on the model deployments
-
-Guardrails can also be assigned to **model deployments** — useful here because Foundry IQ's knowledge base depends on two deployments on the Foundry account: a chat-completion deployment (the knowledge base's model) and an embedding deployment.
-
-- **Assignment**: in the Foundry portal, or by setting `raiPolicyName` on the deployment ([how to configure guardrails](https://learn.microsoft.com/azure/foundry/guardrails/how-to-create-guardrails#assign-a-guardrail-to-a-model-deployment)). Without an explicit assignment, a model deployment uses the **Microsoft.DefaultV2** guardrail.
-- **Intervention points**: only **user input** and **output** apply to models; tool call and tool response are agent-only. Models also support the _annotate_ action in addition to _annotate and block_ ([models vs. agents](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview#guardrails-for-agents-vs-models)).
-- **Scope**: the guardrail system applies to Foundry Models sold by Azure, except audio transcription models.
-- **Cost**: each intervention point adds roughly 50–100 ms of latency, so start with the controls that matter most.
-
-### Masking only part of the PII
-
-Guardrails only block (or annotate) the _entire_ output when PII is detected — they can't redact just the PII portion and let the rest of the text through. For that finer-grained case, Azure AI Language's PII detection (`recognize_pii_entities`) is the tool for the job.
-
-#### Trying it out
-
-[`samplecodes/test_language-service-pii.py`](../../samplecodes/test_language-service-pii.py) shows a minimal, standalone call to it via `LANGUAGE_ENDPOINT`, pointed at this repo's `cognitiveservices` APIM API:
-
-```bash
-export LANGUAGE_ENDPOINT="$(azd env get-value LANGUAGE_ENDPOINT)"
-python samplecodes/test_language-service-pii.py
-```
-
-#### Using it inside `foundryiq-acl-mcp`
-
-The toolbox's guardrail sits at the boundary between `toolbox` and the MCP server it forwards to — it doesn't reach into `foundryiq-acl-mcp`'s own code. For partial masking there, the same call shown in that sample script can be added directly inside the Function MCP's existing request flow (`tools/knowledge_retrieve.py` → `shared/kb_client.py`), at either of two points:
-
-- **Input**: the `query` string, before it's sent to Foundry IQ's `retrieve()` call — masks PII typed by the caller before it ever reaches the knowledge base or gets logged in Azure AI Search's own telemetry.
-- **Output**: the grounding text extracted from Foundry IQ's response, before it's returned to the MCP caller — masks PII that lives in the indexed source documents themselves, which would otherwise surface verbatim in the tool's result.
-
-The two points are independent — mask the query alone, the output alone, or both, depending on which side the risk is judged to matter more.
 
 ### Conditional Access
 
