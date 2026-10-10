@@ -71,11 +71,29 @@ resource "azapi_resource" "ai_foundry" {
 }
 
 
+# ガードレール (RAI ポリシー)。モデルデプロイ / エージェント / Toolbox から名前または ARM ID で参照される。
+# 存在しないポリシーを参照すると、エージェントや Toolbox ではエラーにならずフィルターが適用されない
+# (fail-open) ため、割り当て側は必ずこのリソースの作成後に行うこと (output の guardrail_id を使う)。
+resource "azapi_resource" "guardrail" {
+  count                     = var.guardrail == null ? 0 : 1
+  type                      = "Microsoft.CognitiveServices/accounts/raiPolicies@2025-06-01"
+  name                      = var.guardrail.name
+  parent_id                 = azapi_resource.ai_foundry.id
+  schema_validation_enabled = false
+  body = {
+    properties = {
+      basePolicyName = var.guardrail.base_policy_name
+      mode           = var.guardrail.mode
+      contentFilters = var.guardrail.content_filters
+    }
+  }
+}
+
 resource "azurerm_cognitive_deployment" "deployment" {
   for_each                   = { for mdl in var.ai_model : mdl.model => mdl }
   name                       = each.value.model
   cognitive_account_id       = azapi_resource.ai_foundry.id
-  rai_policy_name            = var.rai_policy_name
+  rai_policy_name            = coalesce(each.value.rai_policy_name, var.rai_policy_name)
   dynamic_throttling_enabled = each.value.dynamic_throttling_enabled
 
   model {
@@ -92,6 +110,7 @@ resource "azurerm_cognitive_deployment" "deployment" {
 
   depends_on = [
     azapi_resource.ai_foundry,
+    azapi_resource.guardrail,
   ]
 }
 

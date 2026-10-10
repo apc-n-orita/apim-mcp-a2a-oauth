@@ -10,7 +10,7 @@ The list of Foundry backends is held in the `{{a2a-backends}}` named value — a
 
 | Request type | Caller identity available? | Assignment method |
 |---|---|---|
-| Agent card (`.../agent-card.json`) | No (discovery path, unauthenticated) | `MD5(request ID) % N` — uniform random per request |
+| Agent card (`.../agent-card.json`) | Token is validated, but `oid` is not used (the card is stateless) | `MD5(request ID) % N` — uniform random per request |
 | A2A JSON-RPC (`message/send` etc.) | Yes (`oid` claim from the validated JWT) | **Sticky per caller**: Redis lookup `a2a-backend-oid-{oid}` → on miss, `MD5(oid) % N` → stored in Redis for 24 h |
 
 The sticky assignment is a **read-mostly** flow — the cache write happens only once per caller:
@@ -57,7 +57,7 @@ resource "azurerm_managed_redis" "a2a_cache" {
 
 ### OAuth Authorization (validate-azure-ad-token + role-based access)
 
-Every A2A request (the unauthenticated agent-card discovery path excluded) is validated in two steps.
+Every A2A request, including the agent-card discovery path, is validated in two steps. Step 2 (role check) is skipped for the agent card, so any caller with a valid token for the application can fetch it.
 
 **1. Token validation** — [`validate-azure-ad-token`](https://learn.microsoft.com/azure/api-management/validate-azure-ad-token-policy) verifies the signature (against the tenant JWKS), issuer, expiry, and audience:
 
@@ -127,7 +127,7 @@ The exception is recorded as type `JsonRpcError` with `agentName`, `backend`, `a
 
 ### Per-Caller Rate Limiting
 
-The API-level policy applies `rate-limit-by-key` with the caller's `oid` as the counter key (default: 20 calls / 60 s, configurable via `a2a_rate_limit_calls` in `main.tfvars.json`). The unauthenticated agent-card path is excluded because no `oid` is available there. The routed backend is exposed to clients via the `X-Routed-Backend` response header for debugging.
+The API-level policy applies `rate-limit-by-key` with the caller's `oid` as the counter key (default: 20 calls / 60 s, configurable via `a2a_rate_limit_calls` in `main.tfvars.json`). The agent-card path is excluded because it is a read-only discovery request (the `oid` variable is only set for A2A JSON-RPC requests). The routed backend is exposed to clients via the `X-Routed-Backend` response header for debugging.
 
 ## Foundry: API Keys Disabled (RBAC-Only Access)
 
@@ -180,20 +180,21 @@ Two options exist for the human side:
 
 > **Caveat — group-based access can outlive deactivation.** Group membership is carried **as claims inside the access token**, not evaluated live like a direct RBAC role assignment. Per the official docs, *"if application previously cached the fact that user... is a member of the group — when [deactivation] happens, the user may still get access"* ([PIM for Groups](https://learn.microsoft.com/entra/id-governance/privileged-identity-management/groups-activate-roles)). In practice this means a token issued during the activation window keeps its group claim — and therefore keeps granting access — **until that token itself expires** (typically up to ~1 hour). Direct role-assignment PIM doesn't have this gap, because Azure RBAC re-checks the live assignment store on every request rather than relying on a claim baked into the token. If near-instant revocation matters more than activation convenience, prefer PIM for Azure resource roles or keep group activation windows short.
 
+## Foundry: Guardrail on the Agent
+
+Content filtering for the A2A path is done by a **Foundry guardrail** assigned to the agent, not by APIM. The guardrail (`a2a-guardrail`, a `Microsoft.CognitiveServices/accounts/raiPolicies` resource deployed with `azapi`) enables Jailbreak, harmful content (Medium), and indirect attack detection, and is attached through `rai_config.rai_policy_name` on the agent definition. It runs inside Foundry, so it applies to every request that reaches the agent regardless of which A2A protocol version the caller uses. See [Guardrails overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview).
+
+> **Note: why APIM `llm-content-safety` is not used here (as it is for the MCP APIs).** Foundry serves both A2A v0.3 and v1.0 on the same base path, but their messages differ: a v0.3 `message/send` part carries `kind: "text"`, while a v1.0 part does not. The [Import an A2A agent API](https://learn.microsoft.com/azure/api-management/agent-to-agent-api) page describes the agent card rewrite only in v0.3 terms (it replaces the hostname, sets the preferred transport to JSON-RPC, and removes other `additionalInterfaces`) and never mentions v1.0, so the APIM A2A agent appears not to support v1.0 **as of now** (this is an inference from the docs; it may change as the feature evolves). Observed results with `llm-content-safety` on this API:
+>
+> | Request | Result |
+> |---|---|
+> | v0.3 `message/send` with harmful text | Blocked with `403` ("Request failed content safety check."); 2 Content Safety calls |
+> | v1.0 `message/send` (no `kind`) with the same text | Passed APIM; **0 Content Safety calls** |
+> | v1.0 with `kind: "text"` added by hand | Blocked with `403` |
+>
+> The policy looks for text parts by their v0.3 shape, so a v1.0 body is not inspected and slips through. Since the check cannot be relied on for v1.0, the guardrail on the agent is used instead.
+
 ## Enhanced Security
-
-### Foundry Guardrails
-
-Besides the APIM-side access control described above, Microsoft Foundry lets you configure **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)) directly on the `a2a-agent` — via the Foundry portal, the RAI Policies REST API, or as Terraform (a guardrail is a `Microsoft.CognitiveServices/accounts/raiPolicies` resource, deployable through the `azapi` provider). A guardrail only takes effect once it's assigned to the agent — `rai_config.rai_policy_name` on the agent definition (or the portal's "Add agents" step). A guardrail can add checks such as harmful content (hate/violence/sexual/self-harm), prompt injection, and a **PII detection (Preview)** category that blocks (or annotates) the entire output, applied at any of the four intervention points available to agents:
-
-| Intervention point | What is scanned |
-|---|---|
-| User input | The prompt sent to the agent |
-| Tool call (Preview) | The action/data the agent proposes to send to a tool |
-| Tool response (Preview) | The content returned from a tool back to the agent |
-| Output | The final completion returned to the caller |
-
-The role is different from the APIM-side access control above: APIM decides *who* may call the agent, while guardrails check *what content* passes through afterward (harmful content, PII, etc.). Combining both — access control at the gateway and guardrails at the agent — covers both sides.
 
 ### Conditional Access
 
@@ -205,7 +206,7 @@ Entra ID **Conditional Access** adds a second, independent layer in front of the
 
 ### Agent Threat Detection (Microsoft Defender with Agent 365)
 
-Guardrails *block* content; they don't tell your security team that someone is attacking. For Foundry agents, detection and posture management are provided by Microsoft Defender and require a **[Microsoft Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview)**-eligible license. Since July 1, 2026, agent-level capabilities that used to come with Defender for Cloud (Defender CSPM and the Defender for AI Services plan) require that license ([transition guide](https://learn.microsoft.com/defender-xdr/security-for-ai/transition-agent-security-to-agent-365)). Defender for AI Services continues to cover Foundry Models such as Azure OpenAI.
+For Foundry agents, detection and posture management are provided by Microsoft Defender and require a **[Microsoft Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview)**-eligible license. Since July 1, 2026, agent-level capabilities that used to come with Defender for Cloud (Defender CSPM and the Defender for AI Services plan) require that license ([transition guide](https://learn.microsoft.com/defender-xdr/security-for-ai/transition-agent-security-to-agent-365)). Defender for AI Services continues to cover Foundry Models such as Azure OpenAI.
 
 With the license, the following are available in the Microsoft Defender portal:
 
@@ -213,7 +214,7 @@ With the license, the following are available in the Microsoft Defender portal:
 - **Threat detection (preview).** Defender analyzes runtime signals — agent interactions, tool usage, execution patterns — and raises near-real-time alerts for jailbreak attempts, indirect prompt injection (XPIA), secret and credential leakage, LLM reconnaissance, and suspicious user or IP access. Alerts can be investigated through incidents and Advanced Hunting ([detect and investigate threats to AI agents](https://learn.microsoft.com/defender-xdr/security-for-ai/ai-agent-detection-protection)).
 - **Observability data flows automatically.** Agents built on Foundry send observability data to Agent 365 once the tenant has a trial or an active license; no extra steps are needed on the agent side ([data handling](https://learn.microsoft.com/microsoft-agent-365/admin/data-residency-protection-compliance)).
 
-This complements the guardrail on the agent: the guardrail prevents, and Defender gives your security team visibility and a place to investigate. Agent 365 is licensed per user, and new purchases require a prerequisite license (for example Microsoft 365 E5) — see the [overview](https://learn.microsoft.com/microsoft-agent-365/overview) for current plans and the 30-day trial.
+Agent 365 is licensed per user, and new purchases require a prerequisite license (for example Microsoft 365 E5) — see the [overview](https://learn.microsoft.com/microsoft-agent-365/overview) for current plans and the 30-day trial.
 
 ## Next
 
