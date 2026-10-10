@@ -10,7 +10,7 @@ The list of Foundry backends is held in the `{{a2a-backends}}` named value — a
 
 | Request type | Caller identity available? | Assignment method |
 |---|---|---|
-| Agent card (`.../agent-card.json`) | No (discovery path, unauthenticated) | `MD5(request ID) % N` — uniform random per request |
+| Agent card (`.../agent-card.json`) | Token is validated, but `oid` is not used (the card is stateless) | `MD5(request ID) % N` — uniform random per request |
 | A2A JSON-RPC (`message/send` etc.) | Yes (`oid` claim from the validated JWT) | **Sticky per caller**: Redis lookup `a2a-backend-oid-{oid}` → on miss, `MD5(oid) % N` → stored in Redis for 24 h |
 
 The sticky assignment is a **read-mostly** flow — the cache write happens only once per caller:
@@ -57,7 +57,7 @@ resource "azurerm_managed_redis" "a2a_cache" {
 
 ### OAuth Authorization (validate-azure-ad-token + role-based access)
 
-Every A2A request (the unauthenticated agent-card discovery path excluded) is validated in two steps.
+Every A2A request, including the agent-card discovery path, is validated in two steps. Step 2 (role check) is skipped for the agent card, so any caller with a valid token for the application can fetch it.
 
 **1. Token validation** — [`validate-azure-ad-token`](https://learn.microsoft.com/azure/api-management/validate-azure-ad-token-policy) verifies the signature (against the tenant JWKS), issuer, expiry, and audience:
 
@@ -127,7 +127,7 @@ The exception is recorded as type `JsonRpcError` with `agentName`, `backend`, `a
 
 ### Per-Caller Rate Limiting
 
-The API-level policy applies `rate-limit-by-key` with the caller's `oid` as the counter key (default: 20 calls / 60 s, configurable via `a2a_rate_limit_calls` in `main.tfvars.json`). The unauthenticated agent-card path is excluded because no `oid` is available there. The routed backend is exposed to clients via the `X-Routed-Backend` response header for debugging.
+The API-level policy applies `rate-limit-by-key` with the caller's `oid` as the counter key (default: 20 calls / 60 s, configurable via `a2a_rate_limit_calls` in `main.tfvars.json`). The agent-card path is excluded because it is a read-only discovery request (the `oid` variable is only set for A2A JSON-RPC requests). The routed backend is exposed to clients via the `X-Routed-Backend` response header for debugging.
 
 ## Foundry: API Keys Disabled (RBAC-Only Access)
 

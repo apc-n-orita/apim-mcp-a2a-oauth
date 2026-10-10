@@ -175,6 +175,8 @@ locals {
       {
         type                  = "a2a_preview"
         project_connection_id = local.verify_conn_names[k]
+        # agent card の取得にも接続の資格情報を付ける (コネクション側の sendCredentialsForAgentCard と併用)
+        send_credentials_for_agent_card = true
       }
     ]
   } }
@@ -1554,7 +1556,10 @@ resource "azapi_resource" "conn_tartaria_a2a" {
       isSharedToAll = false
       metadata = {
         AgentCardPath = "${local.apim_a2a_url}/agent-card.json"
-        type          = "custom_A2A"
+        # agent card の取得にも接続の資格情報 (MI トークン) を付ける (ポータルの "Authenticate when retrieving agent card")。
+        # APIM の A2A ポリシーが agentcard にも validate-azure-ad-token を要求するため
+        sendCredentialsForAgentCard = "true"
+        type                        = "custom_A2A"
       }
       target                      = local.apim_a2a_url
       useWorkspaceManagedIdentity = false

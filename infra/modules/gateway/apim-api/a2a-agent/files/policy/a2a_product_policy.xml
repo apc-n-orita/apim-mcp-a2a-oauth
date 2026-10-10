@@ -9,18 +9,18 @@
       return match.Success ? match.Groups[1].Value : string.Empty;
     }" />
 		<!--
-      agentcard 以外: Entra ID トークン検証 + ロール認可
+      Entra ID トークン検証 (agentcard を含む全リクエスト) + ロール認可 (agentcard 以外のみ)
       Named Values:
         {{EntraIDTenantId}}  : Entra ID テナント ID
         {{a2a-oauth-app-id}} : バックエンドアプリの App ID
     -->
+		<validate-azure-ad-token tenant-id="{{EntraIDTenantId}}" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized">
+			<audiences>
+				<audience>api://{{a2a-oauth-app-id}}/</audience>
+			</audiences>
+		</validate-azure-ad-token>
 		<choose>
 			<when condition="@(!(bool)context.Variables["isAgentCard"])">
-				<validate-azure-ad-token tenant-id="{{EntraIDTenantId}}" output-token-variable-name="jwt" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized">
-					<audiences>
-						<audience>api://{{a2a-oauth-app-id}}/</audience>
-					</audiences>
-				</validate-azure-ad-token>
 				<!-- roles クレームを Application Insights へ送信 -->
 				<!--
                 <trace source="a2a-auth" severity="information">
@@ -68,7 +68,7 @@
         {{a2a-backends}}: カンマ区切りの AI Foundry アカウント名一覧（1件でも動作）
         例: "ai-account-j2pwizoyug22m" または "ai-account-j2pwizoyug22m,ai-account-keuy"
 
-      agentcard: 認証なしのため oid が取れない → クライアント IP ハッシュで振り分け
+      agentcard: ステートレスなのでスティッキー不要 → リクエスト ID のハッシュで振り分け
       a2a     : oid → Redis キャッシュ → スティッキーバックエンド決定
     -->
 		<choose>

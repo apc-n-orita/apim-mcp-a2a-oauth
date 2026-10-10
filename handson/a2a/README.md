@@ -16,7 +16,7 @@ In both patterns, APIM enforces the same product policy: Entra ID token validati
 Both patterns follow the same sequence against APIM and the Foundry project — only the caller identity and token-acquisition method differ:
 
 - **Pattern 1**: the **local A2A client** (`a2a-agent.py`) acquires an Entra ID access token for the `a2a-agent` application (audience `api://{a2a-oauth-app-id}`) via the signed-in user.
-- **Pattern 2**: the **Foundry agent** (`a2a-caller`) acquires a token for the same application via its A2A tool connection, using the **project Managed Identity**.
+- **Pattern 2**: the **Foundry agent** (`a2a-caller`) acquires a token for the same application via its A2A tool connection, using the **project Managed Identity**. Because APIM also requires a token for the agent card, the connection sets `sendCredentialsForAgentCard` and the A2A tool sets `send_credentials_for_agent_card` so that the card request carries the token too.
 
 In both cases APIM validates the token and checks that the `roles` claim contains the target agent name (`tartaria-agent`).
 
@@ -31,7 +31,7 @@ sequenceDiagram
     Client->>Entra: 1) Request access token (api://{a2a-oauth-app-id})
     Entra-->>Client: 2) Return access token (roles claim only if App Role assigned)
 
-    Client->>APIM: 3) GET /a2a/tartaria-agent/agent-card.json
+    Client->>APIM: 3) GET /a2a/tartaria-agent/agent-card.json with access token
     APIM-->>Client: 4) Return agent card
 
     Client->>APIM: 5) A2A message/send with access token
