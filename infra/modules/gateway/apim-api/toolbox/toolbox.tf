@@ -90,12 +90,15 @@ resource "azapi_resource" "toolbox_api" {
   ]
 }
 
-# --- API ポリシー (base のみ。実処理は Toolbox Product ポリシー側で完結させる) ---
+# --- API ポリシー (Toolbox Product ポリシーの後に llm-content-safety を実行する) ---
+# ポリシーが参照する Content Safety のバックエンドは呼び出し側 (main.tf) で作成し、名前を変数で受け取る。
 resource "azurerm_api_management_api_policy" "toolbox" {
   api_name            = azapi_resource.toolbox_api.name
   api_management_name = var.api_management_name
   resource_group_name = var.resource_group_name
-  xml_content         = file("${path.module}/files/policy/toolbox_api_policy.xml")
+  xml_content = templatefile("${path.module}/files/policy/toolbox_api_policy.xml", {
+    content_safety_backend_name = var.content_safety_backend_name
+  })
 }
 
 # --- toolbox API の Application Insights 診断設定 ---

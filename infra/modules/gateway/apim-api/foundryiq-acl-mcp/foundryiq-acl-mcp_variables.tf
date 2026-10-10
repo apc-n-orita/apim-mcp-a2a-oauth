@@ -36,6 +36,11 @@ variable "mcp_api_uri_template" {
   default     = "/runtime/webhooks/mcp"
 }
 
+variable "content_safety_backend_name" {
+  description = "Name of the APIM backend for Azure AI Content Safety, embedded as backend-id of the llm-content-safety policy in the MCP API policy (the backend itself is created by the caller)"
+  type        = string
+}
+
 variable "api_management_logger_id" {
   description = "Resource ID of the existing Application Insights logger on APIM"
   type        = string

@@ -14,6 +14,22 @@
 				<audience>https://search.azure.com/</audience>
 			</audiences>
 		</validate-azure-ad-token>
+		<!--
+      Azure AI Content Safety によるリクエストの検査 (トークン検証の後に実行し、未認証のリクエストでは呼ばない)。
+      有害コンテンツ (Hate / SelfHarm / Sexual / Violence) とプロンプト攻撃 (shield-prompt) を検出する。
+      検出時は APIM が 403 を返す。threshold は 0 (最も厳しい) 〜 7 (最も緩い)。重大度が threshold 以上でブロックされる
+      (EightSeverityLevels では 0〜7 の 8 段階)。要素は公式ドキュメントの順序で並べること。
+      backend-id は terraform の templatefile で、変数 content_safety_backend_name を埋め込む。
+      PII / Indirect Attack / Task Adherence はこのポリシーの対象外。
+    -->
+		<llm-content-safety backend-id="${content_safety_backend_name}" shield-prompt="true">
+			<categories output-type="EightSeverityLevels">
+				<category name="Hate" threshold="4" />
+				<category name="SelfHarm" threshold="4" />
+				<category name="Sexual" threshold="4" />
+				<category name="Violence" threshold="4" />
+			</categories>
+		</llm-content-safety>
 		<!-- 検証済みの呼び出し元トークンを、AI Search の ACL 評価用ヘッダーとしてそのまま引き継ぐ -->
 		<set-header name="x-ms-query-source-authorization" exists-action="override">
 			<value>@(context.Request.Headers.GetValueOrDefault("Authorization", ""))</value>

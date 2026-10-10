@@ -106,18 +106,31 @@ locals {
     ]
   }
 
+  # ガードレール (RAI ポリシー) の ARM ID は Foundry アカウントごとに異なるため、ペイロードはアカウント (module.ai_foundry の key) ごとに作る。
+  # rai_policy_name はベア名ではなくフル ARM ID を渡す。ポリシーが存在しない場合は fail-open になるため、
+  # A2A 専用ガードレール (azapi_resource.a2a_guardrail) の ID を参照して、ポリシー作成後にエージェントを作成させる。
+  agent_definitions = {
+    for k, m in module.ai_foundry : k => merge(local.agent_definition, {
+      rai_config = { rai_policy_name = azapi_resource.a2a_guardrail[k].id }
+    })
+  }
+
   # POST {endpoint}/agents?api-version=v1 (新規作成)
-  agent_create_payload = jsonencode({
-    name        = local.agent_name
-    description = local.agent_description
-    definition  = local.agent_definition
-  })
+  agent_create_payloads = {
+    for k, d in local.agent_definitions : k => jsonencode({
+      name        = local.agent_name
+      description = local.agent_description
+      definition  = d
+    })
+  }
 
   # POST {endpoint}/agents/{name}/versions?api-version=v1 (既存エージェントの更新)
-  agent_version_payload = jsonencode({
-    description = local.agent_description
-    definition  = local.agent_definition
-  })
+  agent_version_payloads = {
+    for k, d in local.agent_definitions : k => jsonencode({
+      description = local.agent_description
+      definition  = d
+    })
+  }
 
   # PATCH {endpoint}/agents/{name}?api-version=v1 (agent card の設定 + A2A プロトコルの有効化)
   # agent card は A2A クライアントがエージェント発見時に取得するメタデータ (.../a2a/agentCard/v1.0 で公開される)
@@ -177,6 +190,38 @@ locals {
     definition  = local.verify_agent_definitions[k]
   }) }
 
+  # ------------------------------------------------------------------------------------------------------
+  # A2A 専用ガードレール (tartaria-agent に割り当てる)
+  # AI モデル (chat / embedding) は Microsoft 既定の Microsoft.DefaultV2 のまま。MCP (toolbox / foundryiq-acl-mcp) には Foundry のガードレールを適用せず、APIM の llm-content-safety で検査する。
+  # APIM の llm-content-safety は A2A v1.0 の本文 (parts に kind がない) を検査できないため、Foundry 側で検査する。
+  #   - 有害コンテンツ Hate / Sexual / Selfharm / Violence : Medium、Prompt / PreToolCall / PostToolCall / Completion の 4 ポイント
+  #   - Jailbreak                  : Prompt
+  #   - Indirect Attack Spotlighting : Prompt
+  #   - Indirect Attack            : Prompt / PostToolCall
+  # severity は有害4カテゴリのみ (他は null = 指定なし)。action は既存ガードレール (test-foundryiq) と同じ "NONE"、blocking = true。
+  # ------------------------------------------------------------------------------------------------------
+  a2a_guardrail_name = "a2a-guardrail"
+
+  a2a_guardrail_controls = concat(
+    [for n in ["Hate", "Sexual", "Selfharm", "Violence"] : {
+      name = n, severity = "Medium", sources = ["Prompt", "PreToolCall", "PostToolCall", "Completion"]
+    }],
+    [
+      { name = "Jailbreak", severity = null, sources = ["Prompt"] },
+      { name = "Indirect Attack Spotlighting", severity = null, sources = ["Prompt"] },
+      { name = "Indirect Attack", severity = null, sources = ["Prompt", "PostToolCall"] },
+    ],
+  )
+
+  a2a_guardrail_content_filters = flatten([
+    for c in local.a2a_guardrail_controls : [
+      for s in c.sources : merge(
+        { name = c.name, source = s, action = "NONE", blocking = true, enabled = true },
+        # severityThreshold を持たないコントロールには、キー自体を付けない (null を送らない)
+        { for k, v in { severityThreshold = c.severity } : k => v if v != null },
+      )
+    ]
+  ])
 }
 
 # ------------------------------------------------------------------------------------------------------
@@ -208,6 +253,13 @@ data "azuread_application" "mcp_oauth" {
 # cognitiveservices API の呼び出し元許可に流用し、新規のグループ作成は行わない。
 data "azuread_group" "ops_mcp_access" {
   display_name = local.ops_group_display_name
+}
+
+# APIM のシステム割り当てマネージド ID からアプリケーション ID (client_id) を取得
+# (llm-content-safety のバックエンドが APIM 自身の cognitiveservices API を MI 認証で呼ぶため、
+#  cognitiveservices API ポリシーの呼び出し元許可リスト (mi_client_ids) に追加する)
+data "azuread_service_principal" "apim" {
+  object_id = data.azurerm_api_management.apim.identity[0].principal_id
 }
 
 data "azurerm_log_analytics_workspace" "law" {
@@ -263,6 +315,23 @@ module "ai_foundry" {
       dynamic_throttling_enabled = true
     }
   ]
+}
+
+# A2A 専用ガードレール (RAI ポリシー)。tartaria-agent の rai_config から、フル ARM ID で参照する。
+# azurerm_cognitive_account_rai_policy は PreToolCall / PostToolCall などに対応しないため、azapi で作成する。
+resource "azapi_resource" "a2a_guardrail" {
+  for_each                  = module.ai_foundry
+  type                      = "Microsoft.CognitiveServices/accounts/raiPolicies@2025-06-01"
+  name                      = local.a2a_guardrail_name
+  parent_id                 = each.value.ai_foundry_id
+  schema_validation_enabled = false
+  body = {
+    properties = {
+      basePolicyName = "Microsoft.DefaultV2"
+      mode           = "Default"
+      contentFilters = local.a2a_guardrail_content_filters
+    }
+  }
 }
 
 resource "azapi_resource" "ai_foundry_project" {
@@ -1112,6 +1181,7 @@ module "foundryiq_acl_mcp_api" {
   api_management_id              = data.azurerm_api_management.apim.id
   api_management_logger_id       = local.apim_logger_id
   mcp_url                        = module.foundryiq_acl_mcp.uri
+  content_safety_backend_name    = azapi_resource.content_safety_backend.name
   diagnostic_sampling_percentage = 100.0
 }
 
@@ -1124,8 +1194,8 @@ resource "null_resource" "deploy_prompt_agent" {
   triggers = {
     endpoint        = "https://${module.ai_foundry[each.key].name}.services.ai.azure.com/api/projects/${each.value.name}"
     agent_name      = local.agent_name
-    create_payload  = local.agent_create_payload
-    version_payload = local.agent_version_payload
+    create_payload  = local.agent_create_payloads[each.key]
+    version_payload = local.agent_version_payloads[each.key]
     patch_payload   = local.agent_patch_payload
   }
 
@@ -1301,7 +1371,7 @@ module "apim_api_cognitiveservices" {
   api_management_id              = data.azurerm_api_management.apim.id
   apim_gateway_url               = data.azurerm_api_management.apim.gateway_url
   apim_principal_id              = data.azurerm_api_management.apim.identity[0].principal_id
-  mi_client_ids                  = [data.azurerm_user_assigned_identity.mcp.client_id]
+  mi_client_ids                  = [data.azurerm_user_assigned_identity.mcp.client_id, data.azuread_service_principal.apim.client_id]
   ops_group_ids                  = [data.azuread_group.ops_mcp_access.object_id]
   diagnostic_sampling_percentage = 100.0
 }
@@ -1329,6 +1399,36 @@ module "apim_a2a_agent" {
 }
 
 
+# ------------------------------------------------------------------------------------------------------
+# Azure AI Content Safety (APIM の llm-content-safety ポリシーから呼び出す)
+# 専用の Content Safety リソースは作らず、Foundry アカウントの cognitiveservices.azure.com
+# (APIM の cognitiveservices API 経由、バックエンドプールで 001 / 002 に振り分け) を使う。
+# ------------------------------------------------------------------------------------------------------
+
+# llm-content-safety ポリシーの backend-id から参照する APIM バックエンド。
+# url は APIM 自身の cognitiveservices API。認証は APIM のシステム割り当て MI (リソース https://cognitiveservices.azure.com) で、
+# cognitiveservices API ポリシーの呼び出し元許可リスト (mi_client_ids) に APIM の MI を追加してある (module "apim_api_cognitiveservices")。
+# 名前は toolbox / foundryiq-acl-mcp / a2a の各モジュールに変数で渡し、各 API ポリシー (llm-content-safety) の backend-id に埋め込まれる。
+resource "azapi_resource" "content_safety_backend" {
+  type                      = "Microsoft.ApiManagement/service/backends@2024-05-01"
+  name                      = "content-safety-backend"
+  parent_id                 = data.azurerm_api_management.apim.id
+  schema_validation_enabled = false
+
+  body = {
+    properties = {
+      protocol    = "http"
+      url         = "${data.azurerm_api_management.apim.gateway_url}/${module.apim_api_cognitiveservices.api_path}"
+      description = "Azure AI Content Safety backend for the llm-content-safety policy"
+      credentials = {
+        managedIdentity = {
+          resource = "https://cognitiveservices.azure.com"
+        }
+      }
+    }
+  }
+}
+
 module "apim_toolbox" {
   source = "./modules/gateway/apim-api/toolbox"
 
@@ -1340,6 +1440,8 @@ module "apim_toolbox" {
   toolbox_name          = local.toolbox_path
   project_name          = local.toolbox_project_name
   foundry_backend_names = [for k, v in module.ai_foundry : v.name]
+  # バックエンドのリソースから名前を渡すことで、ポリシーより先にバックエンドが作られる依存関係にもなる
+  content_safety_backend_name = azapi_resource.content_safety_backend.name
 
   diagnostic_sampling_percentage = 100.0
 

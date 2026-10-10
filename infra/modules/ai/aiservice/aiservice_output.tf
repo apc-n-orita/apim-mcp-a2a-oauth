@@ -22,3 +22,8 @@ output "location" {
   description = "The location of the AI foundry."
   value       = azapi_resource.ai_foundry.location
 }
+
+output "guardrail_id" {
+  description = "The ARM resource ID of the guardrail (RAI policy). null when var.guardrail is not set. Agents and toolboxes need the full ARM ID for rai_policy_name."
+  value       = one(azapi_resource.guardrail[*].id)
+}
