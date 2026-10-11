@@ -43,6 +43,7 @@
 | <a name="input_oauth_app_client_id"></a> [oauth\_app\_client\_id](#input\_oauth\_app\_client\_id) | Client ID of the Entra ID application used for A2A client authorization (audience api://{client\_id}/) | `string` | n/a | yes |
 | <a name="input_project_name"></a> [project\_name](#input\_project\_name) | Name of the AI Foundry project hosting the agent (referenced by the a2a product policy via the ai-foundry-project named value) | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group name of the existing API Management instance | `string` | n/a | yes |
+| <a name="input_agent_card_version"></a> [agent\_card\_version](#input\_agent\_card\_version) | Foundry の agent card のバージョン (例: 0.3)。バックエンドの .../agentCard/v{version} を APIM の A2A API (agentCardBackendUrl) と A2A Product ポリシー (named value a2a-agent-card-version) の両方で参照する。APIM の A2A API は v0.3 の agent card しか書き換えない (v1.0 は supportedInterfaces が Foundry の URL を指したままになる) | `string` | `"0.3"` | no |
 | <a name="input_diagnostic_sampling_percentage"></a> [diagnostic\_sampling\_percentage](#input\_diagnostic\_sampling\_percentage) | APIM診断のサンプリング率（0.0 〜 100.0）。本番環境では 20.0 〜 50.0 を推奨。 | `number` | `100` | no |
 | <a name="input_rate_limit_calls"></a> [rate\_limit\_calls](#input\_rate\_limit\_calls) | oid ごとのレートリミット回数 (renewal-period 60 秒あたりの許可リクエスト数) | `number` | `20` | no |
 
