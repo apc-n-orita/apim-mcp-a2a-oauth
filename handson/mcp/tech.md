@@ -55,7 +55,7 @@ Limit: request side only (responses are not screened).
 
 ## Load Balancing (with Redis)
 
-`toolbox` uses the same per-caller sticky routing and retry/failover mechanism described in [a2a's Technical Details](../a2a/tech_use.md#load-balancing-with-redis) — `oid` → Redis-backed backend assignment, TTL 24h, failover on repeated 5xx/429/JSON-RPC-shaped errors. The only differences are the Redis key prefix (`toolbox-backend-oid-{oid}` instead of `a2a-backend-oid-{oid}`) and that failover never swaps the passthrough authentication described above, even on a retry to a different backend.
+`toolbox` uses the same per-caller sticky routing and retry/failover mechanism described in [a2a's Technical Details](../a2a/tech_use.md#load-balancing-with-redis) — `oid` → Redis-backed backend assignment (TTL 24 h); when a request fails (no response / 5xx / 429), it is retried once on another backend without waiting, and if that retry succeeds the assignment is rewritten for 5 minutes (a failed retry does not rewrite Redis). The differences from a2a are the Redis key prefix (`toolbox-backend-oid-{oid}` instead of `a2a-backend-oid-{oid}`), the retry condition, which looks at the HTTP status only (the JSON-RPC `-32603` check is specific to the a2a policy), and that failover never swaps the passthrough authentication described above, even on a retry to a different backend.
 
 ## src/foundryiq-acl-mcp: Implementation Notes
 

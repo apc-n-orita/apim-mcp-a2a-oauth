@@ -1390,6 +1390,9 @@ module "apim_a2a_agent" {
 
   oauth_app_client_id = azuread_application.a2a_agent.client_id
 
+  # APIM の A2A API は v0.3 の agent card しか書き換えない (v1.0 は supportedInterfaces が Foundry の URL を指したままになる) ため 0.3 を使う
+  agent_card_version = "0.3"
+
   application_insights_instrumentation_key = data.azurerm_application_insights.appi.instrumentation_key
   application_insights_ingestion_endpoint  = local.appi_ingestion_endpoint
   diagnostic_sampling_percentage           = 100.0

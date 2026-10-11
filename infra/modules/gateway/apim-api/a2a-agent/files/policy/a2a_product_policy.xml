@@ -121,7 +121,7 @@
 		</set-header>
 		<!--
       バックエンド URL を変数に設定
-      agentcard: .../protocols/a2a/agentCard/v0.3
+      agentcard: .../protocols/a2a/agentCard/v${agent_card_version}  (Terraform の templatefile で埋め込み。main.tf の agent_card_version)
       a2a      : .../protocols/a2a
       Named Values:
         {{ai-foundry-project}}: AI Foundry プロジェクト名
@@ -130,7 +130,7 @@
       var id = (string)context.Variables["assignedBackendId"];
       var agentName = (string)context.Variables["agentName"];
       var baseUrl = "https://" + id + ".services.ai.azure.com/api/projects/{{ai-foundry-project}}/agents/" + agentName + "/endpoint/protocols/a2a";
-      return (bool)context.Variables["isAgentCard"] ? baseUrl + "/agentCard/v0.3" : baseUrl;
+      return (bool)context.Variables["isAgentCard"] ? baseUrl + "/agentCard/v${agent_card_version}" : baseUrl;
     }" />
 		<set-backend-service base-url="@((string)context.Variables["backendUrl"])" />
 		<!--
@@ -148,21 +148,22 @@
 	</inbound>
 	<backend>
 		<!--
-      5xx / 429 / JSON-RPC エラー発生時のリトライ＋フェイルオーバー戦略
-      試行 1〜3: 割り当て済みバックエンドでリトライ
-      試行 4   : 別バックエンドへフェイルオーバー
-                 Redis: 試行 4 で常に failover 先へ更新（agentcard を除く）
+      5xx / 429 / JSON-RPC -32603 (Internal error) 発生時のリトライ＋フェイルオーバー戦略
+      (Foundry は 429 も -32603 で返す。クライアント起因の -32601 / -32602 などはリトライしない)
+      試行 1: 割り当て済みバックエンド
+      試行 2: 失敗したら待たずに別バックエンドへフェイルオーバー (リトライはこの 1 回のみ)
+              Redis: フェイルオーバー先で成功したときだけ 5 分間更新（agentcard を除く）
     -->
-		<retry condition="@(context.Response == null || context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && context.Response.StatusCode <= 599) || !string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("jsonRpcErrorMsg", "")))" count="3" interval="2" first-fast-retry="false">
+		<retry condition="@(context.Response == null || context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && context.Response.StatusCode <= 599) || context.Variables.GetValueOrDefault<string>("jsonRpcErrorCode", "") == "-32603")" count="1" interval="1" first-fast-retry="true">
 			<set-variable name="attempt-count" value="@(context.Variables.GetValueOrDefault<int>("attempt-count", 0) + 1)" />
 			<!-- フェイルオーバー判定用に直前のレスポンスコードを保存 -->
 			<set-variable name="lastResponseCode" value="@(context.Response != null ? context.Response.StatusCode : 0)" />
 			<choose>
-				<!-- 試行 1〜3: 割り当て済みバックエンドを使用 -->
-				<when condition="@(context.Variables.GetValueOrDefault<int>("attempt-count") <= 3)">
+				<!-- 試行 1: 割り当て済みバックエンドを使用 -->
+				<when condition="@(context.Variables.GetValueOrDefault<int>("attempt-count") <= 1)">
 					<set-backend-service base-url="@((string)context.Variables["backendUrl"])" />
 				</when>
-				<!-- 試行 4: リトライ全失敗 → 別バックエンドへフェイルオーバー -->
+				<!-- 試行 2: 1 回目が失敗 → 別バックエンドへフェイルオーバー -->
 				<otherwise>
 					<set-variable name="failoverBackendId" value="@{
             var current = (string)context.Variables["assignedBackendId"];
@@ -179,18 +180,12 @@
             int idx = (BitConverter.ToInt32(hashBytes, 0) & 0x7fffffff) % backends.Length;
             return backends[idx];
           }" />
-					<!-- a2a の場合は常に Redis を更新 -->
-					<choose>
-						<when condition="@(!(bool)context.Variables["isAgentCard"])">
-							<cache-store-value key="@("a2a-backend-oid-" + (string)context.Variables["oid"])" value="@((string)context.Variables["failoverBackendId"])" duration="86400" caching-type="external" />
-						</when>
-					</choose>
 					<!-- backendUrl をフェイルオーバー先で更新してバックエンドを切り替え -->
 					<set-variable name="backendUrl" value="@{
             var id = (string)context.Variables["failoverBackendId"];
             var agentName = (string)context.Variables["agentName"];
             var baseUrl = "https://" + id + ".services.ai.azure.com/api/projects/{{ai-foundry-project}}/agents/" + agentName + "/endpoint/protocols/a2a";
-            return (bool)context.Variables["isAgentCard"] ? baseUrl + "/agentCard/v0.3" : baseUrl;
+            return (bool)context.Variables["isAgentCard"] ? baseUrl + "/agentCard/v${agent_card_version}" : baseUrl;
           }" />
 					<set-backend-service base-url="@((string)context.Variables["backendUrl"])" />
 				</otherwise>
@@ -208,7 +203,23 @@
                 }
             }" />
 			<set-variable name="jsonRpcErrorCode" value="@(context.Variables.GetValueOrDefault<JObject>("jsonRpcBody")?.SelectToken("error.code")?.ToString() ?? "")" />
-			<set-variable name="jsonRpcErrorMsg" value="@(context.Variables.GetValueOrDefault<JObject>("jsonRpcBody")?.SelectToken("error.message")?.ToString() ?? "")" />
+			<!-- App Insights へ送るメッセージ: A2A v1.0 の error.data[0].metadata (例: {"detail":"Received 429 from a service request"}) があればそれを、なければ error.message を使う -->
+			<set-variable name="jsonRpcErrorMsg" value="@{
+                var body = context.Variables.GetValueOrDefault<JObject>("jsonRpcBody");
+                var metadata = body?.SelectToken("error.data[0].metadata");
+                if (metadata != null) {
+                    return metadata.ToString(Newtonsoft.Json.Formatting.None);
+                }
+                return body?.SelectToken("error.message")?.ToString() ?? "";
+            }" />
+			<!-- フェイルオーバー先 (試行 2) で成功したときだけ Redis を 5 分間更新 (agentcard を除く)
+                 失敗や JSON-RPC エラー (存在しない ID の GetTask など) では更新せず、呼び出し元が別バックエンドに固定されないようにする
+                 5 分はエージェントの実行時間に合わせた値。切り替え先で作った task のポーリングが同じバックエンドへ向かうための短期固定 -->
+			<choose>
+				<when condition="@(context.Variables.GetValueOrDefault<int>("attempt-count") > 1 && !(bool)context.Variables["isAgentCard"] && context.Response != null && context.Response.StatusCode < 400 && string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("jsonRpcErrorMsg", "")))">
+					<cache-store-value key="@("a2a-backend-oid-" + (string)context.Variables["oid"])" value="@((string)context.Variables["failoverBackendId"])" duration="300" caching-type="external" />
+				</when>
+			</choose>
 			<!-- JSON-RPC エラーを App Insights exceptions テーブルへ送信 (v2.1/track Entra ID 認証) -->
 			<choose>
 				<when condition="@(!string.IsNullOrEmpty(context.Variables.GetValueOrDefault<string>("jsonRpcErrorMsg", "")))">

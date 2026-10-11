@@ -63,3 +63,13 @@ variable "diagnostic_sampling_percentage" {
     error_message = "diagnostic_sampling_percentage must be between 0.0 and 100.0"
   }
 }
+
+variable "agent_card_version" {
+  description = "Foundry の agent card のバージョン (例: 0.3)。バックエンドの .../agentCard/v{version} を APIM の A2A API (agentCardBackendUrl) と A2A Product ポリシー (named value a2a-agent-card-version) の両方で参照する。APIM の A2A API は v0.3 の agent card しか書き換えない (v1.0 は supportedInterfaces が Foundry の URL を指したままになる)"
+  type        = string
+  default     = "0.3"
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+$", var.agent_card_version))
+    error_message = "agent_card_version must look like 0.3 or 1.0"
+  }
+}
