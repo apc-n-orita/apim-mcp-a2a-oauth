@@ -172,9 +172,17 @@ export RG=$(azd env get-value AZURE_RESOURCE_GROUP)
 redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN" \
   GET "default-workspace_2_a2a-backend-oid-$OID"
 
-# 2. Set the TPM of the chat model deployment on the ASSIGNED Foundry account to the minimum
-#    (Foundry portal > Models + endpoints > the chat deployment (the chat model name in infra/main.tfvars.json)
-#     > Edit > Tokens per Minute Rate Limit = minimum, capacity 1)
+# 2. Set the TPM (capacity) of the chat model deployment on the ASSIGNED Foundry account to the minimum
+export ACCOUNT=<account name from step 1>
+export CHAT_DEPLOYMENT=$(jq -r '.openai_chat.model_name' infra/main.tfvars.json)
+
+#    Look up the current model / version / SKU / capacity (note the capacity so you can restore it in step 5)
+az cognitiveservices account deployment show -g $RG -n $ACCOUNT --deployment-name $CHAT_DEPLOYMENT \
+  --query "{model:properties.model.name, version:properties.model.version, format:properties.model.format, sku:sku.name, capacity:sku.capacity}" -o table
+
+#    Re-create the deployment with capacity 1 (use the values shown above for the other options)
+az cognitiveservices account deployment create -g $RG -n $ACCOUNT --deployment-name $CHAT_DEPLOYMENT \
+  --model-format OpenAI --model-name <model> --model-version <version> --sku-name <sku> --sku-capacity 1
 
 # 3. Send an A2A request in debug mode (X-Routed-Backend header is printed)
 A2A_DEBUG=1 python samplecodes/a2a-agent.py
@@ -185,7 +193,10 @@ A2A_DEBUG=1 python samplecodes/a2a-agent.py
 redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN" \
   GET "default-workspace_2_a2a-backend-oid-$OID"
 
-# 5. Recover — the deployment is managed by Terraform, so azd up restores the original capacity
+# 5. Recover — run the same create command with the original capacity noted in step 2 ...
+az cognitiveservices account deployment create -g $RG -n $ACCOUNT --deployment-name $CHAT_DEPLOYMENT \
+  --model-format OpenAI --model-name <model> --model-version <version> --sku-name <sku> --sku-capacity <original capacity>
+#    ... or let Terraform restore it (the deployment is managed by Terraform)
 azd up
 ```
 
