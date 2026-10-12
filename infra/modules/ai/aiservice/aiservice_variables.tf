@@ -29,7 +29,25 @@ variable "ai_model" {
     capacity                   = number
     version_upgrade_option     = optional(string)
     dynamic_throttling_enabled = optional(bool)
+    # モデル単位で割り当てるガードレール (RAI ポリシー) 名。未指定なら var.rai_policy_name を使う。
+    rai_policy_name = optional(string)
   }))
+}
+
+variable "guardrail" {
+  description = <<-EOT
+    AI Foundry アカウントに作成するガードレール (RAI ポリシー)。null なら作成しない。
+    content_filters は ARM の raiPolicies.properties.contentFilters と同じ形 (name / source / action / blocking / enabled / severityThreshold)。
+    azurerm_cognitive_account_rai_policy は source が Prompt / Completion のみで PreToolCall / PostToolCall /
+    Task Adherence を表現できないため、azapi で作成する。
+  EOT
+  type = object({
+    name             = string
+    base_policy_name = optional(string, "Microsoft.DefaultV2")
+    mode             = optional(string, "Default")
+    content_filters  = any
+  })
+  default = null
 }
 
 variable "public_network_access" {

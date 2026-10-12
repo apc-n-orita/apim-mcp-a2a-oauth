@@ -29,6 +29,11 @@ variable "foundry_backend_names" {
   type        = list(string)
 }
 
+variable "content_safety_backend_name" {
+  description = "Name of the APIM backend for Azure AI Content Safety, embedded as backend-id of the llm-content-safety policy in the toolbox API policy (the backend itself is created by the caller)"
+  type        = string
+}
+
 variable "api_management_logger_id" {
   type = string
 }

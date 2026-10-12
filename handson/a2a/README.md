@@ -16,7 +16,7 @@ In both patterns, APIM enforces the same product policy: Entra ID token validati
 Both patterns follow the same sequence against APIM and the Foundry project — only the caller identity and token-acquisition method differ:
 
 - **Pattern 1**: the **local A2A client** (`a2a-agent.py`) acquires an Entra ID access token for the `a2a-agent` application (audience `api://{a2a-oauth-app-id}`) via the signed-in user.
-- **Pattern 2**: the **Foundry agent** (`a2a-caller`) acquires a token for the same application via its A2A tool connection, using the **project Managed Identity**.
+- **Pattern 2**: the **Foundry agent** (`a2a-caller`) acquires a token for the same application via its A2A tool connection, using the **project Managed Identity**. Because APIM also requires a token for the agent card, the connection sets `sendCredentialsForAgentCard` and the A2A tool sets `send_credentials_for_agent_card` so that the card request carries the token too.
 
 In both cases APIM validates the token and checks that the `roles` claim contains the target agent name (`tartaria-agent`).
 
@@ -31,7 +31,7 @@ sequenceDiagram
     Client->>Entra: 1) Request access token (api://{a2a-oauth-app-id})
     Entra-->>Client: 2) Return access token (roles claim only if App Role assigned)
 
-    Client->>APIM: 3) GET /a2a/tartaria-agent/agent-card.json
+    Client->>APIM: 3) GET /a2a/tartaria-agent/agent-card.json with access token
     APIM-->>Client: 4) Return agent card
 
     Client->>APIM: 5) A2A message/send with access token
@@ -61,7 +61,7 @@ For Pattern 2, two verification projects are provisioned in the first Foundry ac
 
 1. **OAuth2 / Entra ID authorization** — callers (users or managed identities) acquire tokens for the `a2a-agent` application. See [OAuth Authorization](tech_use.md#oauth-authorization-validate-azure-ad-token--role-based-access) in Technical Details.
 2. **App Role–based authorization** — the APIM product policy matches the token `roles` claim against the agent name in the URL (exact or wildcard `prefix-*`). Foundry itself also supports assigning RBAC roles directly at agent scope, but this hands-on deliberately routes end-user authorization through APIM's App Role check instead — see [Why App Roles at APIM, Not Foundry Agent-Scope RBAC Directly](tech_use.md#why-app-roles-at-apim-not-foundry-agent-scope-rbac-directly).
-3. **Sticky load balancing with failover** — per-caller (`oid`) backend assignment persisted in Managed Redis for 24 h; on repeated failures (5xx / 429 / JSON-RPC errors) traffic fails over to another Foundry backend and the sticky assignment is rewritten. See [Load Balancing (with Redis)](tech_use.md#load-balancing-with-redis).
+3. **Sticky load balancing with failover** — per-caller (`oid`) backend assignment persisted in Managed Redis for 24 h; when a synchronous call fails (5xx / 429 / JSON-RPC `-32603`) the request is retried once on another Foundry backend, and the sticky assignment is rewritten for 5 minutes if that succeeds. Asynchronous calls are not failed over. See [Load Balancing (with Redis)](tech_use.md#load-balancing-with-redis).
 4. **Secretless connections** — APIM reaches Foundry with its system-assigned managed identity; the Foundry project reaches the knowledge base and OpenAI models (via APIM) with project/search managed identities.
 5. **Observability** — API diagnostics to Application Insights, plus JSON-RPC errors (which arrive as HTTP 200) pushed to the App Insights `exceptions` table by the policy itself. See [JSON-RPC Error Telemetry](tech_use.md#json-rpc-error-telemetry-to-application-insights).
 
@@ -74,7 +74,7 @@ For Pattern 2, two verification projects are provisioned in the first Foundry ac
 ```bash
 python -m venv a2aenv
 source a2aenv/bin/activate
-pip install a2a-sdk azure-identity httpx requests
+pip install a2a-sdk==1.1.0 azure-identity httpx requests
 ```
 
 **1-2. Check your token has the `tartaria-agent` App Role**
@@ -125,7 +125,7 @@ azd env get-value VERIFY_PROJECT_ENDPOINTS
 
 ### 3. Inspect the Redis cache (sticky backend assignments)
 
-The APIM product policy stores each caller's backend assignment in Managed Redis (`a2a-backend-oid-{oid}`, TTL 24 h). The deploying user is granted data access via an access policy assignment, so you can inspect it with `redis-cli`:
+The APIM product policy stores each caller's backend assignment in Managed Redis (`a2a-backend-oid-{oid}`, TTL 24 h; 5 min after a failover). The deploying user is granted data access via an access policy assignment, so you can inspect it with `redis-cli`:
 
 ```bash
 export REDIS_HOST=$(azd env get-value REDIS_HOSTNAME)
@@ -159,9 +159,11 @@ Each key corresponds to one caller (`oid` of a user or a managed identity), and 
 
 ### 4. Verify failover
 
-The retry/failover condition of the APIM product policy is _no response / 429 / 5xx / JSON-RPC error_. The easiest way to trigger it — and to recover afterwards — is to **delete the chat model deployment on the assigned backend**: the A2A endpoint itself stays reachable (HTTP 200), but the agent run fails on the server side and comes back as a **JSON-RPC error in the response body**, which is exactly the failure pattern this policy is designed to catch.
+The retry/failover condition of the APIM product policy is _no response / 429 / 5xx / JSON-RPC error `-32603`_. The easiest way to trigger it — and to recover afterwards — is to **set the TPM (tokens per minute) of the chat model deployment on the assigned backend to the minimum**: the A2A endpoint itself stays reachable (HTTP 200), but the model returns 429, the agent run fails on the server side, and the failure comes back as a **JSON-RPC error `-32603` in the response body**, which is exactly the failure pattern this policy is designed to catch. This works for synchronous calls only (see [Why failover works only for synchronous calls](tech_use.md#why-failover-works-only-for-synchronous-calls)); `samplecodes/a2a-agent.py` is synchronous.
 
 > This requires two or more Foundry backends (`ai_locations` with 2+ entries).
+
+> **Note: the Foundry agent (`a2a-caller`, Pattern 2) is not failed over.** Its A2A tool (`a2a_preview`) talks A2A v0.3, where `message/send` is asynchronous by default, so APIM only sees a `submitted` task and the failure shows up later as a `failed` task, not as a JSON-RPC error. Failover is therefore verified here with the synchronous `a2a-agent.py` client (Pattern 1).
 
 ```bash
 export RG=$(azd env get-value AZURE_RESOURCE_GROUP)
@@ -170,29 +172,38 @@ export RG=$(azd env get-value AZURE_RESOURCE_GROUP)
 redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN" \
   GET "default-workspace_2_a2a-backend-oid-$OID"
 
-# 2. Delete the chat model deployment on the ASSIGNED Foundry account
-#    (the deployment name is the chat model name configured in infra/main.tfvars.json)
+# 2. Set the TPM (capacity) of the chat model deployment on the ASSIGNED Foundry account to the minimum
+export ACCOUNT=<account name from step 1>
 export CHAT_DEPLOYMENT=$(jq -r '.openai_chat.model_name' infra/main.tfvars.json)
-az cognitiveservices account deployment delete \
-  -g $RG -n <account name from step 1> --deployment-name $CHAT_DEPLOYMENT
+
+#    Look up the current model / version / SKU / capacity (note the capacity so you can restore it in step 5)
+az cognitiveservices account deployment show -g $RG -n $ACCOUNT --deployment-name $CHAT_DEPLOYMENT \
+  --query "{model:properties.model.name, version:properties.model.version, format:properties.model.format, sku:sku.name, capacity:sku.capacity}" -o table
+
+#    Re-create the deployment with capacity 1 (use the values shown above for the other options)
+az cognitiveservices account deployment create -g $RG -n $ACCOUNT --deployment-name $CHAT_DEPLOYMENT \
+  --model-format OpenAI --model-name <model> --model-version <version> --sku-name <sku> --sku-capacity 1
 
 # 3. Send an A2A request in debug mode (X-Routed-Backend header is printed)
 A2A_DEBUG=1 python samplecodes/a2a-agent.py
-# -> The first request takes ~8 s (3 retries at 2 s interval + failover attempt),
-#    then the answer comes back with X-Routed-Backend showing the OTHER account.
+# -> The first request is slower (the failed attempt on the assigned backend takes ~10 s,
+#    then the failover attempt), and the answer comes back with X-Routed-Backend showing the OTHER account.
 
-# 4. Confirm the sticky assignment was rewritten to the failover target
+# 4. Confirm the sticky assignment was rewritten to the failover target (TTL is ~300 s)
 redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN" \
   GET "default-workspace_2_a2a-backend-oid-$OID"
 
-# 5. Recover — the deleted deployment is managed by Terraform, so azd up recreates it
+# 5. Recover — run the same create command with the original capacity noted in step 2 ...
+az cognitiveservices account deployment create -g $RG -n $ACCOUNT --deployment-name $CHAT_DEPLOYMENT \
+  --model-format OpenAI --model-name <model> --model-version <version> --sku-name <sku> --sku-capacity <original capacity>
+#    ... or let Terraform restore it (the deployment is managed by Terraform)
 azd up
 ```
 
 What to observe:
 
-- **Only the first request after the deletion is slow** (retries + failover). Subsequent requests are fast because the Redis assignment already points at the failover target — this is the sticky-rewrite behavior in action.
-- With `MONITOR` running in another terminal, you can see the `SET a2a-backend-oid-...` command issued at the moment of failover.
+- **Only the first request is slow** (the failed attempt + failover). For the next 5 minutes, requests go straight to the failover target because the Redis assignment points at it. After that the key expires and the next request tries the original backend again (and fails over again while its TPM is still at the minimum).
+- With `MONITOR` running in another terminal, you can see the `SET a2a-backend-oid-...` command (TTL 300 s) issued at the moment of failover.
 - The JSON-RPC errors are recorded in the Application Insights `exceptions` table as `JsonRpcError` (with `agentName` / `backend` / `attempt` properties).
 
 **Query errors in Application Insights:**
@@ -218,8 +229,8 @@ This query surfaces:
 - **timestamp**: when the error occurred
 - **agentName**: target agent (e.g., `tartaria-agent`)
 - **backend**: which Foundry account encountered the failure
-- **attempt**: retry attempt number (1–4)
-- **errorCode** / **errorMessage**: the JSON-RPC error details
+- **attempt**: attempt number (1 = assigned backend, 2 = failover)
+- **errorCode** / **errorMessage**: the JSON-RPC error code, and `error.data[0].metadata` (for example `{"detail":"Received 429 from a service request"}`) if present, otherwise `error.message`
 
 ## See also
 

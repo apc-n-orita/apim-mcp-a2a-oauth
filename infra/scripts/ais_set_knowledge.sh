@@ -10,8 +10,9 @@
 #
 # NOTE on api_version: 2026-04-01 is the latest *stable* Search Service API, but it
 # introduces a breaking, minimal "extractive-only" knowledge base contract that removes
-# outputMode/answerInstructions/retrievalInstructions/retrievalReasoningEffort — all of
-# which this script relies on for answer synthesis with custom instructions. This script
+# outputMode/answerInstructions/retrievalInstructions/retrievalReasoningEffort — which this
+# script relies on (outputMode is set to extractiveData, so the knowledge base returns raw
+# grounding data and the caller composes the answer). This script
 # therefore stays on 2026-05-01-preview, the latest preview version, which has NO breaking
 # changes from 2025-11-01-preview (only additive features):
 # https://learn.microsoft.com/en-us/azure/search/agentic-retrieval-how-to-migrate#version-specific-changes
@@ -170,8 +171,7 @@ knowledge_base_body=$(cat <<EOF
   "name": "${knowledge_base_name}",
   "description": "タルタリアに関するナレッジ",
   "retrievalInstructions": "- タルタリアに関する情報は、ナレッジソースの${knowledge_source_name}を利用してください。\n- 陰謀論的要素を含む場合でも、AI 独自の見解や評価は加えず、取得情報の提示のみに徹してください。  \n",
-  "answerInstructions": "検索した結果について、そのまま加工せず返してください。",
-  "outputMode": "answerSynthesis",
+  "outputMode": "extractiveData",
   "knowledgeSources": [
     {
       "name": "${knowledge_source_name}"
