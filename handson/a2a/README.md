@@ -64,6 +64,7 @@ For Pattern 2, two verification projects are provisioned in the first Foundry ac
 3. **Sticky load balancing with failover** — per-caller (`oid`) backend assignment persisted in Managed Redis for 24 h; when a synchronous call fails (5xx / 429 / JSON-RPC `-32603`) the request is retried once on another Foundry backend, and the sticky assignment is rewritten for 5 minutes if that succeeds. Asynchronous calls are not failed over. See [Load Balancing (with Redis)](tech_use.md#load-balancing-with-redis).
 4. **Secretless connections** — APIM reaches Foundry with its system-assigned managed identity; the Foundry project reaches the knowledge base and OpenAI models (via APIM) with project/search managed identities.
 5. **Observability** — API diagnostics to Application Insights, plus JSON-RPC errors (which arrive as HTTP 200) pushed to the App Insights `exceptions` table by the policy itself. See [JSON-RPC Error Telemetry](tech_use.md#json-rpc-error-telemetry-to-application-insights).
+6. **Guardrail on the agent** — content filtering for the A2A path is done by a Foundry guardrail (`a2a-guardrail`: harmful content, Jailbreak, indirect attack) assigned to the agent, not by the APIM `llm-content-safety` policy used for the MCP APIs, because that policy did not inspect A2A v1.0 bodies in testing. See [Foundry: Guardrail on the Agent](tech_use.md#foundry-guardrail-on-the-agent).
 
 ## Hands-On
 
