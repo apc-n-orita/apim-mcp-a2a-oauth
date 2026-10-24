@@ -46,6 +46,7 @@
 
 | Name | Type |
 |------|------|
+| [azapi_resource.a2a_guardrail](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.ai_foundry_project](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.conn_appi](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.conn_foundryiq](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
@@ -53,6 +54,9 @@
 | [azapi_resource.conn_logicmcp](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.conn_tartaria_a2a](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.conn_toolbox_appi](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.content_safety_backend](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.grafana_dashboard](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
+| [azapi_resource.grafana_dashboard_definition](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.toolbox_project](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azapi_resource.verify_project](https://registry.terraform.io/providers/Azure/azapi/latest/docs/resources/resource) | resource |
 | [azuread_app_role_assignment.tartaria_agent_current_user](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/resources/app_role_assignment) | resource |
@@ -108,6 +112,7 @@
 | [azuread_client_config.current](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/client_config) | data source |
 | [azuread_group.ops_mcp_access](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/group) | data source |
 | [azuread_service_principal.ai_search](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/service_principal) | data source |
+| [azuread_service_principal.apim](https://registry.terraform.io/providers/hashicorp/azuread/latest/docs/data-sources/service_principal) | data source |
 | [azurerm_api_management.apim](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/api_management) | data source |
 | [azurerm_api_management_api.oauth](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/api_management_api) | data source |
 | [azurerm_application_insights.appi](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/application_insights) | data source |
@@ -132,6 +137,7 @@
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Existing resource group containing the APIM / Application Insights / Log Analytics Workspace. Newly created resources are also placed here. | `string` | n/a | yes |
 | <a name="input_subscription_id"></a> [subscription\_id](#input\_subscription\_id) | Azure subscription ID | `string` | n/a | yes |
 | <a name="input_a2a_rate_limit_calls"></a> [a2a\_rate\_limit\_calls](#input\_a2a\_rate\_limit\_calls) | tartaria-agent API の oid ごとのレートリミット回数 (60 秒あたりの許可リクエスト数) | `number` | `20` | no |
+| <a name="input_create_grafana_dashboards"></a> [create\_grafana\_dashboards](#input\_create\_grafana\_dashboards) | true にすると Grafana ダッシュボード (a2a / mcp) を作成する。既存の Application Insights を参照する | `bool` | `false` | no |
 | <a name="input_knowledge_reasoning_effort"></a> [knowledge\_reasoning\_effort](#input\_knowledge\_reasoning\_effort) | Retrieval reasoning effort for Knowledge Base. Valid values: minimal, low, medium | `string` | `"medium"` | no |
 | <a name="input_tpm_limit_token"></a> [tpm\_limit\_token](#input\_tpm\_limit\_token) | Tokens per minute limit for OpenAI (APIM 経由の openai API に適用) | `number` | `30000` | no |
 

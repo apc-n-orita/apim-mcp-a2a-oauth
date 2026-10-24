@@ -34,6 +34,7 @@
 | <a name="input_api_management_id"></a> [api\_management\_id](#input\_api\_management\_id) | Resource ID of the existing API Management instance | `string` | n/a | yes |
 | <a name="input_api_management_logger_id"></a> [api\_management\_logger\_id](#input\_api\_management\_logger\_id) | n/a | `string` | n/a | yes |
 | <a name="input_api_management_name"></a> [api\_management\_name](#input\_api\_management\_name) | Name of the existing API Management instance | `string` | n/a | yes |
+| <a name="input_content_safety_backend_name"></a> [content\_safety\_backend\_name](#input\_content\_safety\_backend\_name) | Name of the APIM backend for Azure AI Content Safety, embedded as backend-id of the llm-content-safety policy in the toolbox API policy (the backend itself is created by the caller) | `string` | n/a | yes |
 | <a name="input_foundry_backend_names"></a> [foundry\_backend\_names](#input\_foundry\_backend\_names) | List of AI Foundry account names used as toolbox backends (load-balanced by the toolbox product policy via the toolbox-backends named value) | `list(string)` | n/a | yes |
 | <a name="input_project_name"></a> [project\_name](#input\_project\_name) | Name of the AI Foundry project hosting the toolbox (used in the mcp uriTemplate) | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group name of the existing API Management instance | `string` | n/a | yes |

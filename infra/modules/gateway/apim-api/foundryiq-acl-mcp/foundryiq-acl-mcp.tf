@@ -74,7 +74,9 @@ resource "azurerm_api_management_api_policy" "mcp" {
   api_name            = azapi_resource.mcp_api.name
   api_management_name = var.api_management_name
   resource_group_name = var.resource_group_name
-  xml_content         = file("${path.module}/files/policy/mcp_api_policy.xml")
+  xml_content = templatefile("${path.module}/files/policy/mcp_api_policy.xml", {
+    content_safety_backend_name = var.content_safety_backend_name
+  })
 }
 
 resource "azurerm_api_management_api_diagnostic" "mcp" {

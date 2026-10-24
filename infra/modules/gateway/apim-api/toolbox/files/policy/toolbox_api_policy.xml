@@ -1,6 +1,22 @@
 <policies>
 	<inbound>
 		<base />
+		<!--
+      Azure AI Content Safety によるリクエストの検査 (Toolbox Product ポリシーの認証・バックエンド振り分けの後に実行)。
+      有害コンテンツ (Hate / SelfHarm / Sexual / Violence) とプロンプト攻撃 (shield-prompt) を検出する。
+      検出時は APIM が 403 を返す。threshold は 0 (最も厳しい) 〜 7 (最も緩い)。重大度が threshold 以上でブロックされる
+      (EightSeverityLevels では 0〜7 の 8 段階)。要素は公式ドキュメントの順序で並べること。
+      backend-id は terraform の templatefile で、変数 content_safety_backend_name (main.tf の azapi_resource.content_safety_backend の名前) を埋め込む。
+      PII / Indirect Attack / Task Adherence はこのポリシーの対象外 (Foundry のガードレール側で検出する)。
+    -->
+		<llm-content-safety backend-id="${content_safety_backend_name}" shield-prompt="true">
+			<categories output-type="EightSeverityLevels">
+				<category name="Hate" threshold="4" />
+				<category name="SelfHarm" threshold="4" />
+				<category name="Sexual" threshold="4" />
+				<category name="Violence" threshold="4" />
+			</categories>
+		</llm-content-safety>
 	</inbound>
 	<backend>
 		<base />

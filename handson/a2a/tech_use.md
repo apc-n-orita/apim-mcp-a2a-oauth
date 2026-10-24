@@ -10,7 +10,7 @@ The list of Foundry backends is held in the `{{a2a-backends}}` named value — a
 
 | Request type | Caller identity available? | Assignment method |
 |---|---|---|
-| Agent card (`.../agent-card.json`) | No (discovery path, unauthenticated) | `MD5(request ID) % N` — uniform random per request |
+| Agent card (`.../agent-card.json`) | Token is validated, but `oid` is not used (the card is stateless; see [Agent Card](#agent-card-served-as-v03)) | `MD5(request ID) % N` — uniform random per request |
 | A2A JSON-RPC (`message/send` etc.) | Yes (`oid` claim from the validated JWT) | **Sticky per caller**: Redis lookup `a2a-backend-oid-{oid}` → on miss, `MD5(oid) % N` → stored in Redis for 24 h |
 
 The sticky assignment is a **read-mostly** flow — the cache write happens only once per caller:
@@ -33,9 +33,67 @@ The sticky assignment is a **read-mostly** flow — the cache write happens only
 </choose>
 ```
 
-In other words: the **first** request from a caller computes `MD5(oid) % N` and writes the result to Redis; **every subsequent** request within 24 h finds the entry on lookup, skips the store, and goes to the same backend. That is what makes the assignment "sticky" — the caller's A2A conversation stays on one Foundry backend (conversation state is backend-local), while the deterministic hash spreads *different* callers across backends. Redis is written again only when the failover path reassigns the caller, described next.
+In other words: the **first** request from a caller computes `MD5(oid) % N` and writes the result to Redis; **every subsequent** request within 24 h finds the entry on lookup, skips the store, and goes to the same backend. That is what makes the assignment "sticky" — the caller's A2A conversation stays on one Foundry backend (conversation state is backend-local), while the deterministic hash spreads *different* callers across backends. Redis is rewritten only when a failover attempt succeeds, and only for 5 minutes (described next).
 
-**Retry and failover** (in the `<backend>` section): the retry condition is *no response / 429 / 5xx / JSON-RPC error in the body*. Attempts 1–3 retry the assigned backend at 2-second intervals; attempt 4 fails over to a deterministically chosen different backend and **rewrites the Redis sticky assignment**, so subsequent requests from that caller avoid the unhealthy backend for the next 24 h — a circuit-breaker effect implemented purely through the sticky map.
+**Retry and failover** (in the `<backend>` section): the retry condition is *no response / 429 / 5xx / JSON-RPC error `-32603` (Internal error)*. Errors on the Foundry agent side are all returned as `-32603`, including a 429 from the model (`Received 429 from a service request`) and a failed tool call (`Received 400 from a service request`). The detail is in `error.data[0].metadata.detail` (v1.0) or `error.message` (v0.3), so the policy does not look at the message. Client-side errors such as `-32601` / `-32602` are not retried.
+
+The policy makes **one retry, without waiting**: if attempt 1 (the assigned backend) fails, attempt 2 goes to a deterministically chosen different backend. If attempt 2 **succeeds**, the Redis sticky assignment is rewritten to the failover target for **5 minutes**, so the follow-up polling for a task created there goes to the same backend. A failed failover attempt (for example, `GetTask` for a nonexistent task) does not rewrite Redis. After 5 minutes the key expires and the next request recomputes `MD5(oid) % N`, returning to the original backend.
+
+#### Why failover works only for synchronous calls
+
+Failover is triggered by the response of the request the policy is handling. Whether that response already contains the failure depends on whether the call waits for the task to finish.
+
+**Synchronous call** (v1.0 `SendMessage` by default, or v0.3 `message/send` with `configuration.blocking: true`): Foundry returns the response **after the task has finished, whether it succeeded or failed**. A failure therefore arrives in the same HTTP 200 response as a JSON-RPC error (`-32603`), the retry condition matches, and the policy re-sends the same request to another backend.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as APIM
+    participant F1 as Foundry (assigned)
+    participant F2 as Foundry (failover)
+    C->>A: SendMessage (waits for completion)
+    A->>F1: forward
+    F1->>F1: agent run fails (429)
+    F1-->>A: 200 + JSON-RPC error -32603
+    Note over A: retry condition matches
+    A->>F2: same request (failover)
+    F2-->>A: 200 completed task
+    A-->>C: 200 completed task
+    Note over A: Redis: sticky assignment → F2 for 5 min
+```
+
+**Asynchronous call** (v1.0 with `returnImmediately: true`, or v0.3 `message/send` without `blocking`): Foundry returns a `submitted` task right away, **before the agent runs**. The policy sees a successful response, so there is nothing to fail over. The failure happens later in the background and shows up only as `state: failed` when the client polls `tasks/get` / `GetTask`.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as APIM
+    participant F1 as Foundry (assigned)
+    C->>A: message/send (non-blocking)
+    A->>F1: forward
+    F1-->>A: 200 task (submitted)
+    A-->>C: 200 task (submitted)
+    Note over A: looks like a success, nothing to fail over
+    F1->>F1: agent run fails later (429)
+    C->>A: tasks/get
+    A->>F1: forward
+    F1-->>A: 200 task (state: failed)
+    A-->>C: 200 task (state: failed)
+    Note over A: still HTTP 200, no JSON-RPC error, no reason
+```
+
+Failing over this case would need more than a policy condition: the policy would have to keep the original message, re-run it on another backend, and map the new task ID to the one the client already holds (a task exists only on the backend that created it). This is not implemented, so **asynchronous calls are not failed over**. Buffering the response body is not the obstacle; the failure simply does not exist yet when the response is returned.
+
+| Call | Mode | How a failure is returned | Failover |
+|---|---|---|---|
+| v1.0 `SendMessage` (no `configuration`) | **Synchronous — the v1.0 default** (waits for completion) | JSON-RPC `-32603` | Yes |
+| v1.0 `SendMessage` with `returnImmediately: true` | Asynchronous (opt-in) | `submitted` now, `failed` task later (no error, no reason) | No |
+| v0.3 `message/send` (no `blocking`) | **Asynchronous — the v0.3 default** (returns right away) | `submitted` now, `failed` task later (no error, no reason) | No |
+| v0.3 `message/send` with `configuration.blocking: true` | Synchronous (opt-in) | JSON-RPC `-32603` | Yes |
+
+The default is the opposite in the two versions: v1.0 waits for the task to finish unless the caller asks to return immediately, while v0.3 returns immediately unless the caller asks to block.
+
+The `samplecodes/a2a-agent.py` sample is synchronous: when the agent card is v0.3, the A2A Python SDK converts the request to `message/send` and sets `blocking: true` (`return_immediately` defaults to `false`).
 
 **External cache**: [`cache-lookup-value`](https://learn.microsoft.com/azure/api-management/cache-lookup-value-policy) / [`cache-store-value`](https://learn.microsoft.com/azure/api-management/cache-store-value-policy) with `caching-type="external"` require an [external Redis-compatible cache](https://learn.microsoft.com/azure/api-management/api-management-howto-cache-external) registered on APIM. The Terraform configuration is in [infra/main.tf](../../infra/main.tf) (`azurerm_managed_redis.a2a_cache` and `azurerm_api_management_redis_cache.a2a_external_cache`):
 
@@ -55,9 +113,13 @@ resource "azurerm_managed_redis" "a2a_cache" {
 - **Production: configure high availability.** This hands-on sets `high_availability_enabled = false` to minimize cost, but the official guidance is explicit: *"Don't run in non-HA mode outside of development and test scenarios"* — non-HA instances have **no availability SLA** ([Azure Managed Redis architecture](https://learn.microsoft.com/azure/redis/architecture#running-without-high-availability-mode-enabled)). The [reliability guide](https://learn.microsoft.com/azure/reliability/reliability-managed-redis) recommends that production instances **use high availability (multiple nodes)** and **zone redundancy** (applied automatically when an HA instance is deployed in a region with availability zones). Note that HA can be enabled later on a non-HA instance, but cannot be reversed once enabled.
 - **Why `clustering_policy = "EnterpriseCluster"`.** Azure Managed Redis offers three [cluster policies](https://learn.microsoft.com/azure/redis/architecture#cluster-policies): OSS, Enterprise, and Non-clustered. The Enterprise policy *"uses a single endpoint for all client connections"* and *"routes all requests to a single Redis node that acts as a proxy. This node internally routes requests to the correct node in the cluster"* — i.e., **APIM sees one endpoint while sharding and load balancing happen behind the proxy**, and the client *"doesn't need to support Redis Clustering"*. APIM connects to the external cache with a plain connection string (`<name>:10000,password=<key>,ssl=True,abortConnect=False`) and is not a cluster-aware client, so the single-endpoint Enterprise policy is the appropriate choice here (the OSS policy requires cluster-aware clients that handle `MOVED`/`ASK` redirections).
 
+### Agent Card (served as v0.3)
+
+The policy fetches the card from `.../agentCard/v0.3` on the backend (see `agentCardBackendUrl` in [a2a-agent.tf](../../infra/modules/gateway/apim-api/a2a-agent/a2a-agent.tf)), although Foundry also publishes a v1.0 card. The APIM A2A API rewrites the card so that clients are pointed at APIM's own URL, and the [Import an A2A agent API](https://learn.microsoft.com/azure/api-management/agent-to-agent-api) page describes that rewrite in v0.3 terms only (the `url` is replaced with APIM's hostname, `preferredTransport` is set to JSON-RPC, and other `additionalInterfaces` are removed). A v1.0 card describes its endpoints in `supportedInterfaces` instead, and APIM does not rewrite it, so it would still return the backend Foundry URL and clients would try to call Foundry directly (we saw a `401` with the v1.0 SDK, because Foundry has API keys disabled and only accepts Entra ID tokens for its own audience). In short, APIM does not support v1.0 for the **agent card** as of October 2026. A2A v1.0 **requests** can still be sent through APIM (they pass through the gateway as in the sticky load balancing flow above); only the card has to be v0.3. The version is set by the `agent_card_version` Terraform variable (default `"0.3"`), passed from [infra/main.tf](../../infra/main.tf).
+
 ### OAuth Authorization (validate-azure-ad-token + role-based access)
 
-Every A2A request (the unauthenticated agent-card discovery path excluded) is validated in two steps.
+Every A2A request, including the agent-card discovery path, is validated in two steps. Step 2 (role check) is skipped for the agent card, so any caller with a valid token for the application can fetch it.
 
 **1. Token validation** — [`validate-azure-ad-token`](https://learn.microsoft.com/azure/api-management/validate-azure-ad-token-policy) verifies the signature (against the tenant JWKS), issuer, expiry, and audience:
 
@@ -101,14 +163,14 @@ This is the same class of tradeoff already noted for [PIM for Groups](#productio
 
 ### JSON-RPC Error Telemetry to Application Insights
 
-The A2A protocol is JSON-RPC: **a failed agent run still returns HTTP 200**, with the failure expressed only inside the body (`{"error": {"code": ..., "message": ...}}`). This creates a blind spot in standard APIM telemetry:
+Foundry's incoming A2A endpoint is a layer in front of the agent: it accepts the A2A (JSON-RPC) request and hands it to the agent (incoming A2A requires the Responses protocol). Failures can be raised in this layer, and they are not always visible on the Foundry agent side. In our tests an agent run failure (`rate_limit_exceeded`) appeared as an `invoke_agent` trace in Application Insights, but a request rejected by the endpoint, such as an unknown method (`-32601`), left no agent trace. Either way, the caller gets the failure back as a JSON-RPC error: **HTTP 200**, with the failure expressed only inside the body (`{"error": {"code": ..., "message": ...}}`). That is why the policy logs these errors itself, and it also creates a blind spot in standard APIM telemetry:
 
 - In the APIM request logs, these calls are recorded as **successful (200) requests** — indistinguishable from healthy traffic.
 - The API diagnostics are configured in Terraform ([a2a-agent.tf](../../infra/modules/gateway/apim-api/a2a-agent/a2a-agent.tf), `azurerm_api_management_api_diagnostic.a2a_api`) with `always_log_errors = true` and a configurable `sampling_percentage`. `alwaysLog: allErrors` is officially defined as *"Always log all **erroneous** request regardless of sampling settings"* ([Diagnostic REST reference](https://learn.microsoft.com/rest/api/apimanagement/diagnostic/create-or-update#alwayslog)) — i.e., HTTP errors are exempt from sampling and always recorded even when the sampling percentage is lowered. However, an HTTP 200 JSON-RPC failure is **not classified as an erroneous request**, so it remains subject to sampling and never surfaces as a failure signal.
 
 To close this gap, the product policy parses the response body into a `JObject` **once per attempt** (`preserveContent: true`, so the client still receives the original body) and caches the result in a `jsonRpcBody` variable — `error.code` and `error.message` are then read from that cached object via `SelectToken`, instead of re-parsing the body once per field. When `error.message` is present, the policy pushes an exception **directly to the Application Insights `exceptions` table** via the ingestion API (`{{app-insights-ingestion-endpoint}}/v2.1/track`), authenticated with the APIM managed identity (Entra ID token for `https://monitor.azure.com`):
 
-> **Why a full-body `As<JObject>()` parse is safe here.** This only works because Foundry's incoming A2A endpoint does not support streaming: *"Streaming responses (server-sent events) aren't supported"* ([A2A limitations](https://learn.microsoft.com/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint#limitations)). Every A2A response is therefore a single, complete JSON-RPC message that has fully arrived by the time this policy runs — there's no partial SSE chunk to account for. As of this writing, there isn't even a setting to turn streaming on: `GET {endpoint}/agents/{agent_name}?api-version=v1` shows `agent_endpoint.protocol_configuration.a2a` as an empty object, and the agent card's `capabilities.streaming` is hardcoded to `false` by Foundry itself — neither this policy nor the agent definition asks for that value. **If Foundry's A2A endpoint adds streaming support in the future** (as a new default, or as an opt-in field inside `protocol_configuration.a2a`), streaming **must be explicitly turned off** for this agent's A2A endpoint before that happens — otherwise a streamed response can't be parsed as one complete JSON object by `As<JObject>()`, silently breaking the JSON-RPC error detection and retry/failover logic in this policy.
+> **Why a full-body `As<JObject>()` parse is safe here.** This only works because Foundry's incoming A2A endpoint does not support streaming: *"Streaming responses (server-sent events) aren't supported"* ([A2A limitations](https://learn.microsoft.com/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint#limitations)). Every A2A response is therefore a single, complete JSON-RPC message that has fully arrived by the time this policy runs — there's no partial SSE chunk to account for. As of October 2026, there isn't even a setting to turn streaming on: `GET {endpoint}/agents/{agent_name}?api-version=v1` shows `agent_endpoint.protocol_configuration.a2a` as an empty object, and the agent card's `capabilities.streaming` is hardcoded to `false` by Foundry itself — neither this policy nor the agent definition asks for that value. **If Foundry's A2A endpoint adds streaming support in the future** (as a new default, or as an opt-in field inside `protocol_configuration.a2a`), streaming **must be explicitly turned off** for this agent's A2A endpoint before that happens — otherwise a streamed response can't be parsed as one complete JSON object by `As<JObject>()`, silently breaking the JSON-RPC error detection and retry/failover logic in this policy.
 
 ```xml
 <send-one-way-request>
@@ -127,7 +189,7 @@ The exception is recorded as type `JsonRpcError` with `agentName`, `backend`, `a
 
 ### Per-Caller Rate Limiting
 
-The API-level policy applies `rate-limit-by-key` with the caller's `oid` as the counter key (default: 20 calls / 60 s, configurable via `a2a_rate_limit_calls` in `main.tfvars.json`). The unauthenticated agent-card path is excluded because no `oid` is available there. The routed backend is exposed to clients via the `X-Routed-Backend` response header for debugging.
+The API-level policy applies `rate-limit-by-key` with the caller's `oid` as the counter key (default: 20 calls / 60 s, configurable via `a2a_rate_limit_calls` in `main.tfvars.json`). The agent-card path is excluded because it is a read-only discovery request (the `oid` variable is only set for A2A JSON-RPC requests). The routed backend is exposed to clients via the `X-Routed-Backend` response header for debugging.
 
 ## Foundry: API Keys Disabled (RBAC-Only Access)
 
@@ -180,20 +242,21 @@ Two options exist for the human side:
 
 > **Caveat — group-based access can outlive deactivation.** Group membership is carried **as claims inside the access token**, not evaluated live like a direct RBAC role assignment. Per the official docs, *"if application previously cached the fact that user... is a member of the group — when [deactivation] happens, the user may still get access"* ([PIM for Groups](https://learn.microsoft.com/entra/id-governance/privileged-identity-management/groups-activate-roles)). In practice this means a token issued during the activation window keeps its group claim — and therefore keeps granting access — **until that token itself expires** (typically up to ~1 hour). Direct role-assignment PIM doesn't have this gap, because Azure RBAC re-checks the live assignment store on every request rather than relying on a claim baked into the token. If near-instant revocation matters more than activation convenience, prefer PIM for Azure resource roles or keep group activation windows short.
 
+## Foundry: Guardrail on the Agent
+
+Content filtering for the A2A path is done by a **Foundry guardrail** assigned to the agent, not by APIM. The guardrail (`a2a-guardrail`, a `Microsoft.CognitiveServices/accounts/raiPolicies` resource deployed with `azapi`) enables Jailbreak, harmful content (Medium), and indirect attack detection, and is attached through `rai_config.rai_policy_name` on the agent definition. It runs inside Foundry, so it applies to every request that reaches the agent regardless of which A2A protocol version the caller uses. See [Guardrails overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview).
+
+> **Note: why APIM `llm-content-safety` is not used here (as it is for the MCP APIs).** Foundry serves both A2A v0.3 and v1.0 on the same base path, but their messages differ: a v0.3 `message/send` part carries `kind: "text"`, while a v1.0 part does not. The [Import an A2A agent API](https://learn.microsoft.com/azure/api-management/agent-to-agent-api) page describes the agent card rewrite only in v0.3 terms (it replaces the hostname, sets the preferred transport to JSON-RPC, and removes other `additionalInterfaces`) and never mentions v1.0, so the APIM A2A agent appears not to support v1.0 **as of October 2026** (this is an inference from the docs; it may change as the feature evolves). Observed results with `llm-content-safety` on this API:
+>
+> | Request | Result |
+> |---|---|
+> | v0.3 `message/send` with harmful text | Blocked with `403` ("Request failed content safety check."); 2 Content Safety calls |
+> | v1.0 `message/send` (no `kind`) with the same text | Passed APIM; **0 Content Safety calls** |
+> | v1.0 with `kind: "text"` added by hand | Blocked with `403` |
+>
+> The policy looks for text parts by their v0.3 shape, so a v1.0 body is not inspected and slips through. Since the check cannot be relied on for v1.0, the guardrail on the agent is used instead.
+
 ## Enhanced Security
-
-### Foundry Guardrails
-
-Besides the APIM-side access control described above, Microsoft Foundry lets you configure **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)) directly on the `a2a-agent` — via the Foundry portal, the RAI Policies REST API, or as Terraform (a guardrail is a `Microsoft.CognitiveServices/accounts/raiPolicies` resource, deployable through the `azapi` provider). A guardrail only takes effect once it's assigned to the agent — `rai_config.rai_policy_name` on the agent definition (or the portal's "Add agents" step). A guardrail can add checks such as harmful content (hate/violence/sexual/self-harm), prompt injection, and a **PII detection (Preview)** category that blocks (or annotates) the entire output, applied at any of the four intervention points available to agents:
-
-| Intervention point | What is scanned |
-|---|---|
-| User input | The prompt sent to the agent |
-| Tool call (Preview) | The action/data the agent proposes to send to a tool |
-| Tool response (Preview) | The content returned from a tool back to the agent |
-| Output | The final completion returned to the caller |
-
-The role is different from the APIM-side access control above: APIM decides *who* may call the agent, while guardrails check *what content* passes through afterward (harmful content, PII, etc.). Combining both — access control at the gateway and guardrails at the agent — covers both sides.
 
 ### Conditional Access
 
@@ -201,19 +264,19 @@ Entra ID **Conditional Access** adds a second, independent layer in front of the
 
 - **Policies target the resource (the token's audience), not the client.** Conditional Access applies to the service being called, so the policy is set on the resource behind the audience, not on whichever A2A client calls it ([target resources](https://learn.microsoft.com/entra/identity/conditional-access/concept-conditional-access-cloud-apps)).
 - **It is evaluated at token issuance, not on every call.** A token that was already issued keeps working until it expires (60 to 90 minutes by default), unless the resource supports [Continuous Access Evaluation](https://learn.microsoft.com/entra/identity/conditional-access/concept-continuous-access-evaluation). Treat it as a complement to the App Role check and the keyless, RBAC-only Foundry access above, not a replacement.
-- **Agent identities have their own policy target.** The policies above apply to users getting a token for the `a2a-agent` audience. When an agent accesses a resource with its own agent identity (not on behalf of a user), Conditional Access can target that **agent identity** or its **agent identity blueprint** instead; a policy on a blueprint covers every agent identity created from it, including ones added later, so agents of the same type are protected in bulk. For agent identities the available condition is **agent risk (Preview)** from ID Protection, and Conditional Access for agents requires Microsoft 365 E7, or an Agent 365 license paired with at least Entra ID P1 or Microsoft 365 E3 ([Conditional Access for agents](https://learn.microsoft.com/entra/identity/conditional-access/agent-id)).
+- **Agent identities have their own policy target.** The policies above apply to users getting a token for the `a2a-agent` audience. When an agent accesses a resource with its own agent identity (not on behalf of a user), Conditional Access can target that **agent identity** or its **agent identity blueprint** instead; a policy on a blueprint covers every agent identity created from it, including ones added later, so agents of the same type are protected in bulk. For agent identities the available condition is **agent risk (Preview as of October 2026)** from ID Protection, and Conditional Access for agents requires Microsoft 365 E7, or an Agent 365 license paired with at least Entra ID P1 or Microsoft 365 E3 ([Conditional Access for agents](https://learn.microsoft.com/entra/identity/conditional-access/agent-id)).
 
 ### Agent Threat Detection (Microsoft Defender with Agent 365)
 
-Guardrails *block* content; they don't tell your security team that someone is attacking. For Foundry agents, detection and posture management are provided by Microsoft Defender and require a **[Microsoft Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview)**-eligible license. Since July 1, 2026, agent-level capabilities that used to come with Defender for Cloud (Defender CSPM and the Defender for AI Services plan) require that license ([transition guide](https://learn.microsoft.com/defender-xdr/security-for-ai/transition-agent-security-to-agent-365)). Defender for AI Services continues to cover Foundry Models such as Azure OpenAI.
+For Foundry agents, detection and posture management are provided by Microsoft Defender and require a **[Microsoft Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview)**-eligible license. Since July 1, 2026, agent-level capabilities that used to come with Defender for Cloud (Defender CSPM and the Defender for AI Services plan) require that license ([transition guide](https://learn.microsoft.com/defender-xdr/security-for-ai/transition-agent-security-to-agent-365)). Defender for AI Services continues to cover Foundry Models such as Azure OpenAI.
 
 With the license, the following are available in the Microsoft Defender portal:
 
 - **Agent discovery and posture.** Foundry agents appear in a central AI agent inventory with risk levels, risk indicators, recommendations, tools, and identities; the same data can be queried in Advanced Hunting (`AgentsInfo` table) ([AI agent inventory](https://learn.microsoft.com/defender-xdr/security-for-ai/ai-agent-inventory)).
-- **Threat detection (preview).** Defender analyzes runtime signals — agent interactions, tool usage, execution patterns — and raises near-real-time alerts for jailbreak attempts, indirect prompt injection (XPIA), secret and credential leakage, LLM reconnaissance, and suspicious user or IP access. Alerts can be investigated through incidents and Advanced Hunting ([detect and investigate threats to AI agents](https://learn.microsoft.com/defender-xdr/security-for-ai/ai-agent-detection-protection)).
+- **Threat detection (preview as of October 2026).** Defender analyzes runtime signals — agent interactions, tool usage, execution patterns — and raises near-real-time alerts for jailbreak attempts, indirect prompt injection (XPIA), secret and credential leakage, LLM reconnaissance, and suspicious user or IP access. Alerts can be investigated through incidents and Advanced Hunting ([detect and investigate threats to AI agents](https://learn.microsoft.com/defender-xdr/security-for-ai/ai-agent-detection-protection)).
 - **Observability data flows automatically.** Agents built on Foundry send observability data to Agent 365 once the tenant has a trial or an active license; no extra steps are needed on the agent side ([data handling](https://learn.microsoft.com/microsoft-agent-365/admin/data-residency-protection-compliance)).
 
-This complements the guardrail on the agent: the guardrail prevents, and Defender gives your security team visibility and a place to investigate. Agent 365 is licensed per user, and new purchases require a prerequisite license (for example Microsoft 365 E5) — see the [overview](https://learn.microsoft.com/microsoft-agent-365/overview) for current plans and the 30-day trial.
+As of October 2026, Agent 365 is licensed per user, and new purchases require a prerequisite license (for example Microsoft 365 E5) — see the [overview](https://learn.microsoft.com/microsoft-agent-365/overview) for current plans and the 30-day trial.
 
 ## Next
 

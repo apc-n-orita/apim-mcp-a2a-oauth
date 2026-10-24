@@ -19,7 +19,7 @@ Covered in the [Overview](README.md#foundry-iq-mcp-docsacl) and its sequence dia
 - **Microsoft Purview sensitivity labels** — sourced from Azure Blob Storage, ADLS Gen2, SharePoint in Microsoft 365, **or Microsoft Fabric OneLake** — evaluated against the organization's Purview policies at query time ([Query-time enforcement of Microsoft Purview sensitivity labels](https://learn.microsoft.com/azure/search/search-query-sensitivity-labels)). Note: Fabric items that carry sensitivity labels at the item level (e.g. a whole lakehouse) aren't indexable this way; only labels applied to individual documents inside OneLake are ([OneLake indexer limitations](https://learn.microsoft.com/azure/search/search-how-to-index-onelake-files#limitations)).
 - **SharePoint in Microsoft 365 ACLs**, including SharePoint site-group membership (`spg:`-prefixed group IDs), for indexed SharePoint content ([SharePoint access control lists](https://learn.microsoft.com/azure/search/search-indexer-sharepoint-access-control-lists))
 - **Remote SharePoint knowledge sources**, where nothing is indexed at all — the header instead lets SharePoint enforce permissions live, via the Copilot Retrieval API ([Remote SharePoint knowledge source](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-sharepoint-remote))
-- **Fabric Data Agent / Fabric IQ (remote, preview)** — also nothing indexed, but the mechanism is a genuine OBO exchange rather than metadata matching: the `x-ms-query-source-authorization` token (scoped to `https://search.azure.com/.default`) is exchanged by the retrieval engine for a Fabric-scoped token, which is then used to query the Fabric Data Agent as that end user ([Fabric Data Agent knowledge source — enforce permissions at query time](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-fabric-data-agent#enforce-permissions-at-query-time)) — the same shape as `toolbox`'s `foundryiqmcp` OBO connection in this repo, just one layer further out (Foundry IQ → Fabric, instead of Foundry Toolbox → Foundry IQ)
+- **Fabric Data Agent / Fabric IQ (remote, preview as of October 2026)** — also nothing indexed, but the mechanism is a genuine OBO exchange rather than metadata matching: the `x-ms-query-source-authorization` token (scoped to `https://search.azure.com/.default`) is exchanged by the retrieval engine for a Fabric-scoped token, which is then used to query the Fabric Data Agent as that end user ([Fabric Data Agent knowledge source — enforce permissions at query time](https://learn.microsoft.com/azure/search/agentic-knowledge-source-how-to-fabric-data-agent#enforce-permissions-at-query-time)) — the same shape as `toolbox`'s `foundryiqmcp` OBO connection in this repo, just one layer further out (Foundry IQ → Fabric, instead of Foundry Toolbox → Foundry IQ)
 
 `foundryiq-acl-mcp`'s index (`infra/scripts/ais_set_acl_index.sh`) uses the native POSIX-like ACL/RBAC-scope permission filter (`permissionFilterOption: "enabled"` with `UserIds` / `GroupIds` / `RbacScope` fields), but the same `x-ms-query-source-authorization` header is how the Purview-, SharePoint-, or Fabric-based variants above would plug into the same MCP-server shape instead.
 
@@ -45,9 +45,17 @@ Two ways to close that gap, not mutually exclusive:
 
 Per the [Foundry RBAC guidance](https://learn.microsoft.com/azure/foundry/concepts/rbac-foundry#minimum-role-assignments-to-get-started): *"If a user or service principal only needs to interact with agents ... without creating or modifying them, assign Foundry Agent Consumer instead of Foundry User."* Assigning **Foundry Agent Consumer** instead of Foundry User on `toolbox-project` means a valid token — however it was obtained — can only invoke agents/tools, not manage the project, deployments, or other resources.
 
+## Content Safety (APIM)
+
+Each MCP API (`toolbox`, `foundryiq-acl-mcp`) runs the APIM [`llm-content-safety`](https://learn.microsoft.com/azure/api-management/llm-content-safety-policy) policy in `inbound`, right after `validate-azure-ad-token`. It screens the request for the four harm categories (Hate / SelfHarm / Sexual / Violence, threshold 4) and for prompt attacks (`shield-prompt="true"`). A blocked request is rejected at the gateway with `403`, before it reaches the MCP backend.
+
+The policy needs a Content Safety-compatible backend. Instead of provisioning a dedicated Content Safety resource, the `content-safety-backend` points at APIM's own `cognitiveservices` API (`${gateway_url}/cognitiveservices`), which forwards to the Foundry accounts' `*.cognitiveservices.azure.com` endpoint (the Foundry endpoint also exposes the Content Safety APIs). APIM authenticates with its managed identity, which is added to that API's caller allow-list (`mi_client_ids`).
+
+Limit: request side only (responses are not screened).
+
 ## Load Balancing (with Redis)
 
-`toolbox` uses the same per-caller sticky routing and retry/failover mechanism described in [a2a's Technical Details](../a2a/tech_use.md#load-balancing-with-redis) — `oid` → Redis-backed backend assignment, TTL 24h, failover on repeated 5xx/429/JSON-RPC-shaped errors. The only differences are the Redis key prefix (`toolbox-backend-oid-{oid}` instead of `a2a-backend-oid-{oid}`) and that failover never swaps the passthrough authentication described above, even on a retry to a different backend.
+`toolbox` uses the same per-caller sticky routing and retry/failover mechanism described in [a2a's Technical Details](../a2a/tech_use.md#load-balancing-with-redis) — `oid` → Redis-backed backend assignment (TTL 24 h); when a request fails (no response / 5xx / 429), it is retried once on another backend without waiting, and if that retry succeeds the assignment is rewritten for 5 minutes (a failed retry does not rewrite Redis). The differences from a2a are the Redis key prefix (`toolbox-backend-oid-{oid}` instead of `a2a-backend-oid-{oid}`), the retry condition, which looks at the HTTP status only (the JSON-RPC `-32603` check is specific to the a2a policy), and that failover never swaps the passthrough authentication described above, even on a retry to a different backend.
 
 ## src/foundryiq-acl-mcp: Implementation Notes
 
@@ -111,56 +119,6 @@ logging.getLogger("azure.identity").setLevel(logging.WARNING)
 
 ## Enhanced Security
 
-### Foundry Guardrails
-
-Microsoft Foundry **Guardrails and controls** ([overview](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview)) can be assigned at two places in this setup: the `toolbox`, and the model deployments behind Foundry IQ.
-
-#### Guardrails on the toolbox
-
-A `toolbox` version can carry its own guardrail. The RAI policy itself is configured in the Foundry portal, via the RAI Policies REST API, or as Terraform (`Microsoft.CognitiveServices/accounts/raiPolicies` via the `azapi` provider); the toolbox version then references that policy by name via `policies.rai_config.rai_policy_name` when it's created or updated.
-
-Only a subset of guardrails can be assigned this way: a guardrail is offered as an option for a toolbox only when it has at least one content filter whose intervention point is one of these two:
-
-| Intervention point      | What is scanned                                      |
-| ----------------------- | ---------------------------------------------------- |
-| Tool call (Preview)     | The action/data `toolbox` proposes to send to a tool |
-| Tool response (Preview) | The content returned from a tool back to `toolbox`   |
-
-Besides the usual harmful-content and prompt-injection checks, guardrails include a **PII detection (Preview)** category that can block or annotate personal information passing through.
-
-The role is different from the access control above: `validate-azure-ad-token` and token passthrough decide _who_ may call `toolbox`, while the toolbox's guardrail checks _what content_ crosses the tool boundary afterward (harmful content, PII, etc.). Combining both — access control at the gateway and a guardrail on the toolbox version — covers both sides.
-
-#### Guardrails on the model deployments
-
-Guardrails can also be assigned to **model deployments** — useful here because Foundry IQ's knowledge base depends on two deployments on the Foundry account: a chat-completion deployment (the knowledge base's model) and an embedding deployment.
-
-- **Assignment**: in the Foundry portal, or by setting `raiPolicyName` on the deployment ([how to configure guardrails](https://learn.microsoft.com/azure/foundry/guardrails/how-to-create-guardrails#assign-a-guardrail-to-a-model-deployment)). Without an explicit assignment, a model deployment uses the **Microsoft.DefaultV2** guardrail.
-- **Intervention points**: only **user input** and **output** apply to models; tool call and tool response are agent-only. Models also support the _annotate_ action in addition to _annotate and block_ ([models vs. agents](https://learn.microsoft.com/azure/foundry/guardrails/guardrails-overview#guardrails-for-agents-vs-models)).
-- **Scope**: the guardrail system applies to Foundry Models sold by Azure, except audio transcription models.
-- **Cost**: each intervention point adds roughly 50–100 ms of latency, so start with the controls that matter most.
-
-### Masking only part of the PII
-
-Guardrails only block (or annotate) the _entire_ output when PII is detected — they can't redact just the PII portion and let the rest of the text through. For that finer-grained case, Azure AI Language's PII detection (`recognize_pii_entities`) is the tool for the job.
-
-#### Trying it out
-
-[`samplecodes/test_language-service-pii.py`](../../samplecodes/test_language-service-pii.py) shows a minimal, standalone call to it via `LANGUAGE_ENDPOINT`, pointed at this repo's `cognitiveservices` APIM API:
-
-```bash
-export LANGUAGE_ENDPOINT="$(azd env get-value LANGUAGE_ENDPOINT)"
-python samplecodes/test_language-service-pii.py
-```
-
-#### Using it inside `foundryiq-acl-mcp`
-
-The toolbox's guardrail sits at the boundary between `toolbox` and the MCP server it forwards to — it doesn't reach into `foundryiq-acl-mcp`'s own code. For partial masking there, the same call shown in that sample script can be added directly inside the Function MCP's existing request flow (`tools/knowledge_retrieve.py` → `shared/kb_client.py`), at either of two points:
-
-- **Input**: the `query` string, before it's sent to Foundry IQ's `retrieve()` call — masks PII typed by the caller before it ever reaches the knowledge base or gets logged in Azure AI Search's own telemetry.
-- **Output**: the grounding text extracted from Foundry IQ's response, before it's returned to the MCP caller — masks PII that lives in the indexed source documents themselves, which would otherwise surface verbatim in the tool's result.
-
-The two points are independent — mask the query alone, the output alone, or both, depending on which side the risk is judged to matter more.
-
 ### Conditional Access
 
 Entra ID **Conditional Access** adds a second, independent layer in front of the audience check described above: it is evaluated when Entra ID issues or refreshes an access token, so it can gate _who obtains a token_ for each MCP server's audience (`https://search.azure.com/` for `foundryiq-acl-mcp`, `https://ai.azure.com/` for `toolbox`) before APIM's `validate-azure-ad-token` ever sees the request. Policies can use conditions such as **Microsoft Entra ID Protection** risk (sign-in risk and user risk; requires Entra ID P2) and **network restrictions** (trusted locations), as well as device state ([risk-based access policies](https://learn.microsoft.com/entra/id-protection/concept-identity-protection-policies), [network assignment](https://learn.microsoft.com/entra/identity/conditional-access/concept-assignment-network)).
@@ -174,7 +132,7 @@ Guardrails block content; they don't tell your security team that someone is att
 
 - **Enabled per subscription.** It is a Defender plan that you turn on under **Environment settings** > **AI services** ([enable threat protection for AI services](https://learn.microsoft.com/azure/defender-for-cloud/ai-onboarding)); no change to the Foundry account or the deployments is needed. Enabling it requires the Owner or Contributor role.
 - **Optional components.** _Suspicious prompt evidence_ adds the flagged prompt and response snippets to alerts (with sensitive data redacted); with it off, analysis continues but the content is masked in alerts.
-- **Limits.** Only text tokens are scanned. It is billed as a paid Defender plan, with a 30-day free trial capped at 75 billion tokens scanned — check the [pricing page](https://azure.microsoft.com/pricing/details/defender-for-cloud/) before enabling.
+- **Limits.** Only text tokens are scanned. It is billed as a paid Defender plan, with a 30-day free trial capped at 75 billion tokens scanned (as of October 2026) — check the [pricing page](https://azure.microsoft.com/pricing/details/defender-for-cloud/) before enabling.
 
 ## See also
 

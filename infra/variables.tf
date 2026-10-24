@@ -96,6 +96,12 @@ variable "knowledge_reasoning_effort" {
   }
 }
 
+variable "create_grafana_dashboards" {
+  description = "true にすると Grafana ダッシュボード (a2a / mcp) を作成する。既存の Application Insights を参照する"
+  type        = bool
+  default     = false
+}
+
 # ------------------------------------------------------------------------------------------------------
 # エージェント / APIM 設定
 # ------------------------------------------------------------------------------------------------------

@@ -29,6 +29,7 @@
 | <a name="input_api_management_id"></a> [api\_management\_id](#input\_api\_management\_id) | Resource ID of the existing API Management instance (parent for the azapi API resource) | `string` | n/a | yes |
 | <a name="input_api_management_logger_id"></a> [api\_management\_logger\_id](#input\_api\_management\_logger\_id) | Resource ID of the existing Application Insights logger on APIM | `string` | n/a | yes |
 | <a name="input_api_management_name"></a> [api\_management\_name](#input\_api\_management\_name) | Name of the existing API Management instance | `string` | n/a | yes |
+| <a name="input_content_safety_backend_name"></a> [content\_safety\_backend\_name](#input\_content\_safety\_backend\_name) | Name of the APIM backend for Azure AI Content Safety, embedded as backend-id of the llm-content-safety policy in the MCP API policy (the backend itself is created by the caller) | `string` | n/a | yes |
 | <a name="input_mcp_url"></a> [mcp\_url](#input\_mcp\_url) | Base URL of the backend (the foundryiq-acl-mcp Function App, e.g. https://<host>) | `string` | n/a | yes |
 | <a name="input_resource_group_name"></a> [resource\_group\_name](#input\_resource\_group\_name) | Resource group of the existing API Management instance | `string` | n/a | yes |
 | <a name="input_api_description"></a> [api\_description](#input\_api\_description) | Description of the MCP API | `string` | `"MCP tool that searches the ACL-protected Foundry IQ knowledge base"` | no |

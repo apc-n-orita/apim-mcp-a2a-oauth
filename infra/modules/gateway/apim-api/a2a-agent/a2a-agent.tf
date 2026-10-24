@@ -81,11 +81,12 @@ resource "azapi_resource" "a2a_api" {
       type                 = "a2a"
       displayName          = var.agent_name
       description          = "A2A endpoint for the ${var.agent_name}"
+      isAgent              = true
       path                 = "a2a/${var.agent_name}"
       protocols            = ["https"]
       subscriptionRequired = false
       a2aProperties = {
-        agentCardBackendUrl = "${local.default_backend_base_url}/agentCard/v0.3"
+        agentCardBackendUrl = "${local.default_backend_base_url}/agentCard/v${var.agent_card_version}"
         agentCardPath       = "/agent-card.json"
       }
       jsonRpcProperties = {
@@ -170,7 +171,9 @@ resource "azurerm_api_management_product_policy" "a2a" {
   product_id          = azurerm_api_management_product.a2a.product_id
   api_management_name = var.api_management_name
   resource_group_name = var.resource_group_name
-  xml_content         = file("${path.module}/files/policy/a2a_product_policy.xml")
+  xml_content = templatefile("${path.module}/files/policy/a2a_product_policy.xml", {
+    agent_card_version = var.agent_card_version
+  })
 
   depends_on = [
     azurerm_api_management_named_value.a2a_backends,
