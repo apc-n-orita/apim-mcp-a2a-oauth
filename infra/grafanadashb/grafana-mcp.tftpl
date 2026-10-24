@@ -1,0 +1,1870 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Comprehensive monitoring dashboard for AI agent framework performance, tracking operations, token usage, costs, errors, and detailed trace analysis. Monitor agent health, response times, success rates, and resource consumption in real-time.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": false,
+      "tags": [],
+      "targetBlank": true,
+      "title": "Doc",
+      "tooltip": "Documentation",
+      "type": "link",
+      "url": "https://aka.ms/amg/dash-doc/af-agent"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-azure-monitor-datasource",
+        "uid": "$${am_ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "links": [],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Input Tokens"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "purple",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Output Tokens"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": []
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 12,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {},
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "13.2.0",
+      "targets": [
+        {
+          "azureLogAnalytics": {
+            "dashboardTime": true,
+            "mode": "raw",
+            "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName has \"apim\"\n| where tostring(customDimensions[\"network.protocol.name\"]) == \"MCP\"\n| extend mcp = split(name, \"/\")[1]\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    ['Total Operations'] = count(),\n    ['Avg Response Time'] = round(avg(duration) / 1000, 2)",
+            "resources": [
+              "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+            ],
+            "resultFormat": "table",
+            "timeColumn": "timestamp"
+          },
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "queryType": "Azure Log Analytics",
+          "refId": "A"
+        }
+      ],
+      "title": "Summary Statistics",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        }
+      ],
+      "type": "stat"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 20,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Time series chart showing average, 95th percentile, and 99th percentile response times for mcp operations over time to monitor performance trends and identify latency issues.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Duration (seconds)",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 10,
+            "x": 0,
+            "y": 6
+          },
+          "id": 1,
+          "interval": "1h",
+          "maxDataPoints": 50,
+          "options": {
+            "legend": {
+              "calcs": [
+                "lastNotNull",
+                "mean"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName has \"apim\"\n| where tostring(customDimensions[\"network.protocol.name\"]) == \"MCP\"\n| extend mcp = split(name, \"/\")[1]\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    avg = avg(duration) / 1000,\n    p95 = percentile(duration, 95) / 1000,\n    p99 = percentile(duration, 99) / 1000\n    by bin(timestamp, $__interval)",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "MCP Response Time Trends",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Percentage of successful mcp operations displayed as a gauge with color-coded thresholds: red (0-90%), yellow (90-95%), green (95-100%).",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "links": [],
+              "mappings": [],
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": 0
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 90
+                  },
+                  {
+                    "color": "green",
+                    "value": 95
+                  }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 7,
+            "x": 10,
+            "y": 6
+          },
+          "id": 2,
+          "options": {
+            "barShape": "flat",
+            "barWidthFactor": 0.5,
+            "effects": {
+              "barGlow": false,
+              "centerGlow": false,
+              "gradient": false
+            },
+            "endpointMarker": "point",
+            "minVizHeight": 75,
+            "minVizWidth": 75,
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "segmentCount": 1,
+            "segmentSpacing": 0.3,
+            "shape": "gauge",
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true,
+            "sizing": "auto",
+            "sparkline": false,
+            "text": {},
+            "textMode": "auto"
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName == \"agentsv2\" \n| extend mcp = \"toolbox\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    success_rate = countif(success == true) * 100.0 / count()",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            },
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\ndependencies\n| where name == \"foundryiq_knowledge_retrieve\"\n| extend mcp = \"foundryiq-acl-mcp\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    success_rate = countif(success == true) * 100.0 / count()",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "B"
+            },
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\ntraces\n| where cloud_RoleName contains \"la-mcp\"\n| where tostring(customDimensions[\"Category\"]) == \"Workflow.Operations.Runs\"\n| where tostring(customDimensions[\"EventName\"]) == \"WorkflowRunEnd\"\n| extend p = parse_json(tostring(customDimensions[\"prop__properties\"]))\n| extend mcp = cloud_RoleName\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    success_rate = countif(tostring(p.status) == \"Succeeded\") * 100.0 / count()",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "C"
+            }
+          ],
+          "title": "Success Rate",
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            }
+          ],
+          "type": "gauge"
+        },
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Number of mcp operations executed per time interval, displayed as a bar chart to track system utilization and identify peak usage periods.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Operations/min",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 1,
+                "drawStyle": "bars",
+                "fillOpacity": 50,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 7,
+            "x": 17,
+            "y": 6
+          },
+          "id": 3,
+          "interval": "1h",
+          "maxDataPoints": 20,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName has \"apim\"\n| where tostring(customDimensions[\"network.protocol.name\"]) == \"MCP\"\n| extend mcp = split(name, \"/\")[1]\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    operations_count = count() \n    by bin(timestamp, $__interval)",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "Throughput",
+          "type": "timeseries"
+        }
+      ],
+      "title": "Performance Monitoring",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "id": 23,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Overall error percentage displayed as a gauge with color thresholds: green (0-5%), yellow (5-10%), red (>10%) to quickly assess system health.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "links": [],
+              "mappings": [],
+              "max": 100,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 5
+                  },
+                  {
+                    "color": "red",
+                    "value": 10
+                  }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 4,
+            "x": 1,
+            "y": 7
+          },
+          "id": 9,
+          "options": {
+            "barShape": "flat",
+            "barWidthFactor": 0.52,
+            "effects": {
+              "barGlow": false,
+              "centerGlow": false,
+              "gradient": false
+            },
+            "endpointMarker": "point",
+            "minVizHeight": 75,
+            "minVizWidth": 75,
+            "orientation": "auto",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "segmentCount": 1,
+            "segmentSpacing": 0.3,
+            "shape": "gauge",
+            "showThresholdLabels": true,
+            "showThresholdMarkers": true,
+            "sizing": "auto",
+            "sparkline": false,
+            "text": {},
+            "textMode": "auto"
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName == \"agentsv2\" \n| extend mcp = \"toolbox\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    success_rate = countif(success == false) * 100.0 / count()",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            },
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\ntraces\n| where cloud_RoleName contains \"la-mcp\"\n| where tostring(customDimensions[\"Category\"]) == \"Workflow.Operations.Runs\"\n| where tostring(customDimensions[\"EventName\"]) == \"WorkflowRunEnd\"\n| extend p = parse_json(tostring(customDimensions[\"prop__properties\"]))\n| extend mcp = cloud_RoleName\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    success_rate = countif(tostring(p.status) != \"Succeeded\") * 100.0 / count()",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "B"
+            },
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\r\ndependencies\r\n| where name == \"foundryiq_knowledge_retrieve\"\r\n| extend mcp = \"foundryiq-acl-mcp\"\r\n| where array_length(MCPNames) > 0\r\n| where mcp in (MCPNames)\r\n| summarize \r\n    success_rate = countif(success == false) * 100.0 / count()",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "C"
+            }
+          ],
+          "title": "Error Rate",
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            }
+          ],
+          "type": "gauge"
+        },
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Time series bar chart showing error count over time to identify error patterns, spikes, and trends for proactive troubleshooting.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Errors",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 1,
+                "drawStyle": "bars",
+                "fillOpacity": 100,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 7,
+            "y": 7
+          },
+          "id": 10,
+          "interval": "1h",
+          "maxDataPoints": 150,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName == \"agentsv2\" \n| extend mcp = \"toolbox\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| where success == false\n| summarize error_count = count() by bin(timestamp, $__interval)",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            },
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\ntraces\n| where cloud_RoleName contains \"la-mcp\"\n| where tostring(customDimensions[\"Category\"]) == \"Workflow.Operations.Runs\"\n| where tostring(customDimensions[\"EventName\"]) == \"WorkflowRunEnd\"\n| extend p = parse_json(tostring(customDimensions[\"prop__properties\"]))\n| extend mcp = cloud_RoleName\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| where tostring(p.status) != \"Succeeded\"\n| summarize error_count = count() by bin(timestamp, $__interval)",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "B"
+            },
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\ndependencies\n| where name == \"foundryiq_knowledge_retrieve\"\n| extend mcp = \"foundryiq-acl-mcp\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| where success == false\n| summarize error_count = count() by bin(timestamp, $__interval)",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "C"
+            }
+          ],
+          "title": "Error Timeline",
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            }
+          ],
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Interactive table listing recent mcp operations with timestamp, agent name, duration, and token usage. Click any row to drill down into detailed trace information for that specific operation.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "links": [
+                {
+                  "targetBlank": false,
+                  "title": "Open trace with trace Id \"$${__data.fields[TraceId]}\"",
+                  "url": "/d/$${__dashboard.uid}/agent-framework?var-mcpTraceId=$${__data.fields[TraceId]}"
+                }
+              ],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "timestamp"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 209
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "duration",
+                  "scope": "series"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 16
+          },
+          "id": 26,
+          "options": {
+            "cellHeight": "sm",
+            "enablePagination": true,
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": false,
+                "displayName": "what"
+              }
+            ]
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\r\nrequests\r\n| where cloud_RoleName == \"agentsv2\" and success == false\r\n| project timestamp, mcp = \"toolbox\", src = \"foundry\",\r\n          what = name,\r\n          detail = strcat(\"resultCode=\", resultCode,\r\n                          \" | error.type=\", tostring(customDimensions[\"error.type\"]),\r\n                          \" | rpc.response.status_code=\", tostring(customDimensions[\"rpc.response.status_code\"])),\r\n                          duration, TraceId=operation_Id \r\n| where array_length(MCPNames) > 0\r\n| where mcp in (MCPNames)\r\n| limit 20",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "logs",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            },
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\r\nlet spans = dependencies\r\n  | where name == \"foundryiq_knowledge_retrieve\"\r\n  | project span_id = id, duration_ms = round(duration);\r\nunion exceptions, traces\r\n| where (itemType == \"exception\" and outerMessage == \"Knowledge retrieval failed.\")\r\n     or (itemType == \"trace\" and message == \"Knowledge base activity reported a problem.\")\r\n| extend reason_ = tostring(customDimensions[\"reason\"]),\r\n         activity_kind_ = tostring(customDimensions[\"activity_kind\"]),\r\n         activity_error_ = tostring(customDimensions[\"activity_error\"]),\r\n         activity_warning_ = tostring(customDimensions[\"activity_warning\"])\r\n| join kind=leftouter spans on $left.operation_ParentId == $right.span_id\r\n| project timestamp, mcp = \"foundryiq-acl-mcp\", src = \"function\",\r\n          what = coalesce(outerMessage, message),\r\n          detail = strcat(\"kb=\", tostring(customDimensions[\"kb\"]),\r\n                          \" | error_type=\", tostring(customDimensions[\"error_type\"]),\r\n                          \" | status_code=\", tostring(customDimensions[\"status_code\"]),\r\n                          iff(isnotempty(reason_), strcat(\" | reason=\", reason_), \"\"),\r\n                          iff(isnotempty(activity_kind_), strcat(\" | activity_kind=\", activity_kind_), \"\"),\r\n                          iff(isnotempty(activity_error_), strcat(\" | activity_error=\", activity_error_), \"\"),\r\n                          iff(isnotempty(activity_warning_), strcat(\" | activity_warning=\", activity_warning_), \"\")),\r\n          duration=duration_ms, TraceId = operation_Id\r\n| where array_length(MCPNames) > 0\r\n| where mcp in (MCPNames)\r\n| order by timestamp desc\r\n| limit 20",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "logs",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "B"
+            },
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\r\ntraces\r\n| where cloud_RoleName contains \"la-mcp\"\r\n| where tostring(customDimensions[\"Category\"]) == \"Workflow.Operations.Runs\"\r\n| where tostring(customDimensions[\"EventName\"]) == \"WorkflowRunEnd\"\r\n| extend p = parse_json(tostring(customDimensions[\"prop__properties\"]))\r\n| where tostring(p.status) != \"Succeeded\"\r\n| project timestamp, mcp = cloud_RoleName, src = \"workflow-run\",\r\n          what = tostring(parse_json(tostring(customDimensions[\"resource\"])).workflowName),\r\n          detail = strcat(tostring(p.status), \" \", substring(tostring(p.error), 0, 120)),\r\n          duration = todouble(customDimensions[\"prop__durationInMilliseconds\"]),\r\n          TraceId = operation_Id\r\n| where array_length(MCPNames) > 0\r\n| where mcp in (MCPNames)\r\n| order by timestamp desc\r\n| limit 20",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "logs",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "C"
+            }
+          ],
+          "title": "Recent Errors",
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            }
+          ],
+          "type": "table"
+        }
+      ],
+      "title": "Error Analysis",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 27,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Detailed trace visualization showing the complete execution flow of a selected mcp operation, including all dependencies, timing, and hierarchical span relationships for debugging and performance analysis.",
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 27,
+            "w": 24,
+            "x": 0,
+            "y": 8
+          },
+          "id": 28,
+          "options": {
+            "spanFilters": {
+              "adhocFilters": [],
+              "criticalPathOnly": false,
+              "matchesOnly": false,
+              "serviceNameOperator": "=",
+              "spanNameOperator": "=",
+              "tags": [
+                {
+                  "id": "ad685329-9e4",
+                  "operator": "="
+                }
+              ]
+            }
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureTraces": {
+                "operationId": "$mcpTraceId",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "trace",
+                "traceTypes": [
+                  "availabilityResults",
+                  "dependencies",
+                  "customEvents",
+                  "exceptions",
+                  "pageViews",
+                  "requests",
+                  "traces"
+                ]
+              },
+              "queryType": "Azure Traces",
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              }
+            }
+          ],
+          "title": "",
+          "type": "traces"
+        }
+      ],
+      "title": "Error Trace detail",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 29,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Number of requests blocked by the content safety  over time.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Detections",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 25,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "normal"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*",
+                  "scope": "series"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 10,
+            "x": 0,
+            "y": 105
+          },
+          "id": 32,
+          "interval": "1h",
+          "maxDataPoints": 50,
+          "options": {
+            "legend": {
+              "calcs": [
+                "sum"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\nexceptions\n| where type == \"ContentSafetyPolicyViolated\"\n| where problemId contains \"llm-content-safety\"\n| extend mcp=split(operation_Name, \";\")[0]\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize detections = count() by bin(timestamp, $__interval), tostring(mcp)\n| order by timestamp asc",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "Content Safety Violations Over Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Requests rejected by the content safety.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "severityLevel",
+                  "scope": "series"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "SeverityLevel"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "MCP",
+                  "scope": "series"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 73
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "SeverityLevel",
+                  "scope": "series"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 93
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 10,
+            "y": 105
+          },
+          "id": 33,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let MCPNames = dynamic([$MCPName]);\r\nexceptions\r\n| where type == \"ContentSafetyPolicyViolated\" and outerMethod contains \"llm-content-safety\"\r\n| extend mcp=split(operation_Name, \";\")[0]\r\n| where array_length(MCPNames) > 0\r\n| where mcp in (MCPNames)\r\n| project timestamp,\r\n          Policy = outerMethod,          // \"llm-content-safety\" など、どのポリシーで発生したか\r\n          Reason = outerMessage,       // 例: \"Content safety violation: attack detected\"\r\n          MCP = mcp,     // 例: \"tartaria-agent;rev=1 - jsonrpc-base\"\r\n          severityLevel\r\n",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "logs",
+                "timeColumn": "timestamp"
+              },
+              "azureMonitor": {
+                "allowedTimeGrainsMs": [],
+                "timeGrain": "auto"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "Content Safety Violations",
+          "type": "table"
+        }
+      ],
+      "title": "Content Safety",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "id": 21,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Stacked time series chart showing input and output token, reasoning token usage trends over time, helping monitor AI model consumption and associated costs.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Tokens",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 25,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "normal"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Input Tokens"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "blue",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Output Tokens"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "green",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Reasoning Tokens",
+                  "scope": "series"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "purple",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 10,
+            "x": 0,
+            "y": 106
+          },
+          "id": 4,
+          "interval": "1h",
+          "maxDataPoints": 50,
+          "options": {
+            "legend": {
+              "calcs": [
+                "sum"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "customMetrics\n| where name startswith \"kb.\"\n| summarize\n    [\"Input Tokens\"] = sumif(valueSum, name == \"kb.llm_input_tokens\"),\n    [\"Output Tokens\"] = sumif(valueSum, name == \"kb.llm_output_tokens\"),\n    [\"Reasoning Tokens\"] = sumif(valueSum, name == \"kb.reasoning_tokens\")\n    by bin(timestamp, $__interval)",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "Token Consumption Over Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "\"Bar chart estimating daily costs of the Foundry IQ  from token consumption. Azure OpenAI LLM tokens (input and output) and Azure AI Search reasoning tokens are billed by different services at different rates, so they are priced separately. Rates are configurable in the query (let variables; defaults: $0.25 per 1M LLM input tokens, $2.00 per 1M LLM output tokens, $0.022 per 1M reasoning tokens). The defaults are placeholders: set them to the rates of the model assigned to the knowledge base and to the Azure AI Search price. The monthly free allowance of Azure AI Search tokens is not subtracted.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Cost ($)",
+                "axisPlacement": "auto",
+                "fillOpacity": 100,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 9,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "currencyUSD"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 7,
+            "x": 10,
+            "y": 106
+          },
+          "id": 6,
+          "options": {
+            "barRadius": 0.05,
+            "barWidth": 0.95,
+            "colorByField": "estimated_cost",
+            "fullHighlight": false,
+            "groupWidth": 0.8,
+            "legend": {
+              "calcs": [
+                "sum"
+              ],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "orientation": "auto",
+            "showValue": "auto",
+            "stacking": "none",
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            },
+            "xField": "timestamp",
+            "xTickLabelRotation": 0,
+            "xTickLabelSpacing": 100
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let llm_input_per_1m = 0.25;          // Azure OpenAI: 入力 $/100万トークン (KB に割り当てたモデルの単価に合わせる)\nlet llm_output_per_1m = 2.00;         // Azure OpenAI: 出力 $/100万トークン\nlet search_reasoning_per_1m = 0.022;  // Azure AI Search: reasoning トークン $/100万 (Learn の例の仮の単価。実際は料金ページで確認)\ncustomMetrics\n| where  name startswith \"kb.\"\n| summarize input_tokens = sumif(valueSum, name == \"kb.llm_input_tokens\"),\n            output_tokens = sumif(valueSum, name == \"kb.llm_output_tokens\"),\n            reasoning_tokens = sumif(valueSum, name == \"kb.reasoning_tokens\")\n  by bin(timestamp, 1d)\n| extend openai_cost = input_tokens * llm_input_per_1m / 1000000.0 + output_tokens * llm_output_per_1m / 1000000.0,\n         search_cost = reasoning_tokens * search_reasoning_per_1m / 1000000.0\n| project timestamp,\n          [\"Azure OpenAI (LLM) cost\"] = round(openai_cost, 6),\n          [\"Azure AI Search (reasoning) cost\"] = round(search_cost, 6),\n          [\"Estimated cost\"] = round(openai_cost + search_cost, 6)",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "Daily Cost Estimation",
+          "type": "barchart"
+        }
+      ],
+      "title": " Foundry IQ Token Usage & Cost (variable filters not applied)",
+      "type": "row"
+    }
+  ],
+  "preload": false,
+  "refresh": "30m",
+  "schemaVersion": 42,
+  "tags": [
+    "agent-framework"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "Azure Monitor",
+          "value": "azure-monitor"
+        },
+        "label": "Data Source",
+        "name": "am_ds",
+        "options": [],
+        "query": "grafana-azure-monitor-datasource",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "text": "${subscription_id}",
+          "value": "${subscription_id}"
+        },
+        "datasource": {
+          "type": "grafana-azure-monitor-datasource",
+          "uid": "$${am_ds}"
+        },
+        "definition": "",
+        "description": "Subscription of the Application Insights",
+        "includeAll": false,
+        "label": "Subscription",
+        "name": "sub",
+        "options": [],
+        "query": {
+          "grafanaTemplateVariableFn": {
+            "kind": "SubscriptionsQuery",
+            "rawQuery": "subscriptions()"
+          },
+          "queryType": "Azure Subscriptions",
+          "refId": "A"
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "sort": 5,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "${resource_group_name}",
+          "value": "${resource_group_name}"
+        },
+        "datasource": {
+          "type": "grafana-azure-monitor-datasource",
+          "uid": "$${am_ds}"
+        },
+        "definition": "",
+        "label": "Resource Group",
+        "name": "rg",
+        "options": [],
+        "query": {
+          "azureLogAnalytics": {
+            "query": "",
+            "resources": []
+          },
+          "azureResourceGraph": {
+            "query": "resources\r\n| where type =~ \"microsoft.insights/components\"\r\n| project resourceGroup"
+          },
+          "queryType": "Azure Resource Graph",
+          "refId": "A",
+          "subscriptions": [
+            "$sub"
+          ]
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "${appinsights_name}",
+          "value": "${appinsights_name}"
+        },
+        "datasource": {
+          "type": "grafana-azure-monitor-datasource",
+          "uid": "$${am_ds}"
+        },
+        "definition": "",
+        "label": "Application Insights",
+        "name": "res",
+        "options": [],
+        "query": {
+          "azureLogAnalytics": {
+            "query": "",
+            "resources": []
+          },
+          "namespace": "microsoft.insights/components",
+          "queryType": "Azure Resource Names",
+          "refId": "A",
+          "resourceGroup": "$rg",
+          "subscription": "$sub"
+        },
+        "refresh": 1,
+        "regex": "",
+        "regexApplyTo": "value",
+        "sort": 5,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-azure-monitor-datasource",
+          "uid": "$${am_ds}"
+        },
+        "definition": "",
+        "description": "Trace Id of the agent operations",
+        "hide": 2,
+        "label": "Trace Id",
+        "name": "mcpTraceId",
+        "options": [],
+        "query": {
+          "azureLogAnalytics": {
+            "dashboardTime": true,
+            "mode": "raw",
+            "query": "dependencies\r\n| distinct operation_Id\r\n| limit 50",
+            "resources": [
+              "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+            ],
+            "timeColumn": "timestamp"
+          },
+          "queryType": "Azure Log Analytics",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "regex": "",
+        "regexApplyTo": "value",
+        "type": "query"
+      },
+      {
+        "allowCustomValue": true,
+        "current": {},
+        "datasource": {
+          "type": "grafana-azure-monitor-datasource",
+          "uid": "$${am_ds}"
+        },
+        "definition": "",
+        "description": "Name of the mcp",
+        "includeAll": true,
+        "label": "MCP",
+        "multi": true,
+        "name": "MCPName",
+        "options": [],
+        "query": {
+          "azureLogAnalytics": {
+            "dashboardTime": true,
+            "mode": "raw",
+            "query": "requests\r\n| where cloud_RoleName has \"apim\"\r\n| where tostring(customDimensions[\"network.protocol.name\"]) == \"MCP\"\r\n| extend mcpname=split(name, \"/\")[1]\r\n| where isnotempty(mcpname)\r\n| summarize operationCount=count() by tostring(mcpname)\r\n| sort by operationCount desc\r\n| project mcpname",
+            "resources": [
+              "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+            ],
+            "timeColumn": "timestamp"
+          },
+          "queryType": "Azure Log Analytics",
+          "refId": "A"
+        },
+        "refresh": 2,
+        "regex": "",
+        "regexApplyTo": "value",
+        "staticOptions": [],
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "${dashboard_name}",
+  "uid": "subscriptions~${subscription_id}~resourceGroups~${resource_group_name}~providers~Microsoft.Dashboard~dashboards~${dashboard_name}",
+  "version": 64,
+  "weekStart": ""
+}

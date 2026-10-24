@@ -1606,3 +1606,46 @@ resource "null_resource" "deploy_verify_agent" {
     null_resource.deploy_prompt_agent,
   ]
 }
+
+# ------------------------------------------------------------------------------------------------------
+# Grafana ダッシュボード (Azure Monitor ダッシュボード。既存 Application Insights を参照)
+# - a2a : A2A (Foundry エージェント / APIM) の失敗・遅延・トークン使用量・遮断数
+# - mcp : MCP (toolbox / foundryiq-acl-mcp / Logic App) の失敗・遅延・トークン使用量・遮断数
+# テンプレートは grafanadashb/ 配下 (Grafana 変数の ${...} は $${...} でエスケープ済み)
+# ------------------------------------------------------------------------------------------------------
+resource "azapi_resource" "grafana_dashboard" {
+  for_each = var.create_grafana_dashboards ? toset(["a2a", "mcp"]) : toset([])
+
+  type                      = "Microsoft.Dashboard/dashboards@2026-09-01"
+  name                      = "${each.key}-dashboard-${substr(local.resource_token, 0, 3)}"
+  location                  = data.azurerm_resource_group.rg.location
+  parent_id                 = data.azurerm_resource_group.rg.id
+  schema_validation_enabled = false
+  tags = {
+    GrafanaDashboardTags         = "agent-framework"
+    AzMonGrafanaDashboardId      = "AgentFramework###ver###4"
+    GrafanaDashboardResourceType = "microsoft.insights/components"
+  }
+  body = {
+    properties = {}
+  }
+}
+
+resource "azapi_resource" "grafana_dashboard_definition" {
+  for_each = azapi_resource.grafana_dashboard
+
+  type                      = "Microsoft.Dashboard/dashboards/dashboardDefinitions@2026-09-01"
+  name                      = "default"
+  parent_id                 = each.value.id
+  schema_validation_enabled = false
+  body = {
+    properties = {
+      serializedData = templatefile("${path.module}/grafanadashb/grafana-${each.key}.tftpl", {
+        subscription_id     = var.subscription_id
+        resource_group_name = data.azurerm_resource_group.rg.name
+        appinsights_name    = data.azurerm_application_insights.appi.name
+        dashboard_name      = each.value.name
+      })
+    }
+  }
+}
