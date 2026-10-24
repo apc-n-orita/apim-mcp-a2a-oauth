@@ -235,6 +235,7 @@ This query surfaces:
 ## See also
 
 - [MCP Hands-On](../mcp/README.md) — the other hands-on track in this repo
+- [(Optional) Grafana Dashboards](../../README.md#optional-grafana-dashboards) — optional dashboards for failures, latency, token usage and guardrail blocks
 
 ## Next
 

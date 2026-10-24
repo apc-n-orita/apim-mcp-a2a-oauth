@@ -115,6 +115,11 @@ Open each printed URL in a browser and approve the consent prompt. This is a one
 
 With `.mcp.json` configured (see [Configure `.mcp.json`](#configure-mcpjson) above), connect from an MCP-capable client such as GitHub Copilot (the token is fetched dynamically on every call via the entry's `headersHelper`), call the `toolbox_search` tool, and confirm it routes to the tools bundled by the Toolbox (`foundryiqmcp`, `logicmcp`).
 
+## See also
+
+- [A2A Hands-On](../a2a/README.md#hands-on) — the other hands-on track in this repo
+- [(Optional) Grafana Dashboards](../../README.md#optional-grafana-dashboards) — optional dashboards for failures, latency, token usage and Content Safety blocks
+
 ## Next
 
 Continue to [Technical Details](tech.md) — authorization design trade-offs, load balancing, and the `foundryiq-acl-mcp` implementation notes.

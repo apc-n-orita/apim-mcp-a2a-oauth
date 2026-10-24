@@ -99,6 +99,23 @@ With the environment deployed, work through the hands-on steps for each track:
 - **[MCP](handson/mcp/README.md)** (foundry iq mcp / toolbox)
 - **[A2A](handson/a2a/README.md#hands-on)**
 
+## (Optional) Grafana Dashboards
+
+Two Azure Monitor dashboards (Grafana) are included as a bonus. They read the existing Application Insights and are **not created by default**.
+
+| Dashboard | What it shows |
+|---|---|
+| `a2a-dashboard-<suffix>` | Agent operations, token usage and cost, latency, errors, Foundry guardrail blocks |
+| `mcp-dashboard-<suffix>` | toolbox / Foundry IQ MCP / Logic App failures and latency, Foundry IQ token usage and cost, Content Safety blocks |
+
+To create them, add the following to `infra/main.tfvars.json` and run `azd up` again:
+
+```jsonc
+"create_grafana_dashboards": true
+```
+
+Then open the two dashboards in the Azure portal, under the resource group. `<suffix>` is the first three characters of the resource token. Data appears after you send some A2A / MCP requests.
+
 ## A Note on Where This Sits
 
 Having just wired up an A2A agent and two MCP servers behind one gateway, this repository is the second step in a three-part arc: [apim-mcp-oauth](https://github.com/apc-n-orita/apim-mcp-oauth) → **apim-mcp-a2a-oauth** → [APICenter](https://github.com/apc-n-orita/APICenter).
