@@ -171,7 +171,7 @@ export RG=$(azd env get-value AZURE_RESOURCE_GROUP)
 
 # 1. Check the currently assigned backend (e.g., aif-<env>-xxx-001)
 redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN" \
-  GET "default-workspace_2_a2a-backend-oid-$OID"
+  GET "default-workspace_2_a2a-backend-oid-<your_oid>"
 
 # 2. Set the TPM (capacity) of the chat model deployment on the ASSIGNED Foundry account to the minimum
 export ACCOUNT=<account name from step 1>
@@ -192,7 +192,7 @@ A2A_DEBUG=1 python samplecodes/a2a-agent.py
 
 # 4. Confirm the sticky assignment was rewritten to the failover target (TTL is ~300 s)
 redis-cli -h $REDIS_HOST -p 10000 --tls --user "$OID" --pass "$TOKEN" \
-  GET "default-workspace_2_a2a-backend-oid-$OID"
+  GET "default-workspace_2_a2a-backend-oid-<your_oid>"
 
 # 5. Recover — run the same create command with the original capacity noted in step 2 ...
 az cognitiveservices account deployment create -g $RG -n $ACCOUNT --deployment-name $CHAT_DEPLOYMENT \

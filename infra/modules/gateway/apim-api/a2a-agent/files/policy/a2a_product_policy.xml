@@ -148,13 +148,20 @@
 	</inbound>
 	<backend>
 		<!--
-      5xx / 429 / JSON-RPC -32603 (Internal error) 発生時のリトライ＋フェイルオーバー戦略
-      (Foundry は 429 も -32603 で返す。クライアント起因の -32601 / -32602 などはリトライしない)
+      5xx / 429 / JSON-RPC -32603 (Internal error) / -32099 (Foundry 独自: reason RATE_LIMIT_EXCEEDEDなど) 発生時のリトライ＋フェイルオーバー戦略
+      (Foundry はモデルのレート制限を -32099 / RATE_LIMIT_EXCEEDED で返す。クライアント起因の -32601 / -32602 などはリトライしない)
       試行 1: 割り当て済みバックエンド
       試行 2: 失敗したら待たずに別バックエンドへフェイルオーバー (リトライはこの 1 回のみ)
               Redis: フェイルオーバー先で成功したときだけ 5 分間更新（agentcard を除く）
     -->
-		<retry condition="@(context.Response == null || context.Response.StatusCode == 429 || (context.Response.StatusCode >= 500 && context.Response.StatusCode <= 599) || context.Variables.GetValueOrDefault<string>("jsonRpcErrorCode", "") == "-32603")" count="1" interval="1" first-fast-retry="true">
+		<retry condition="@{
+				var retryableJsonRpcCodes = new[] { "-32603", "-32099" };
+				var jsonRpcCode = context.Variables.GetValueOrDefault<string>("jsonRpcErrorCode", "");
+				return context.Response == null
+					|| context.Response.StatusCode == 429
+					|| (context.Response.StatusCode >= 500 && context.Response.StatusCode <= 599)
+					|| retryableJsonRpcCodes.Contains(jsonRpcCode);
+			}" count="1" interval="1" first-fast-retry="true">
 			<set-variable name="attempt-count" value="@(context.Variables.GetValueOrDefault<int>("attempt-count", 0) + 1)" />
 			<!-- フェイルオーバー判定用に直前のレスポンスコードを保存 -->
 			<set-variable name="lastResponseCode" value="@(context.Response != null ? context.Response.StatusCode : 0)" />
