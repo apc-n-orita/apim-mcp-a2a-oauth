@@ -105,7 +105,7 @@ Two Azure Monitor dashboards (Grafana) are included as a bonus. They read the ex
 
 | Dashboard | What it shows |
 |---|---|
-| `a2a-dashboard-<suffix>` | Agent operations, token usage and cost, latency, errors, Foundry guardrail blocks |
+| `a2a-dashboard-<suffix>` | Agent operations, token usage and cost, latency, errors, Foundry guardrail blocks, JSON-RPC errors recorded by the APIM policy (by code, backend and attempt) |
 | `mcp-dashboard-<suffix>` | toolbox / Foundry IQ MCP / Logic App failures and latency, Foundry IQ token usage and cost, Content Safety blocks |
 
 To create them, add the following to `infra/main.tfvars.json` and run `azd up` again:

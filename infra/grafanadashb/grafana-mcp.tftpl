@@ -388,7 +388,7 @@
               "azureLogAnalytics": {
                 "dashboardTime": true,
                 "mode": "raw",
-                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName == \"agentsv2\" \n| extend mcp = \"toolbox\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    success_rate = countif(success == true) * 100.0 / count()",
+                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName == \"agentsv2\" \n| extend tb = tostring(customDimensions[\"microsoft.foundry.toolbox.name\"])\n| where isnotempty(tb) and tb !startswith \"foundry-managed-harness\"\n| extend mcp = \"toolbox\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    success_rate = countif(success == true) * 100.0 / count()",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
@@ -672,7 +672,7 @@
               "azureLogAnalytics": {
                 "dashboardTime": true,
                 "mode": "raw",
-                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName == \"agentsv2\" \n| extend mcp = \"toolbox\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    success_rate = countif(success == false) * 100.0 / count()",
+                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName == \"agentsv2\" \n| extend tb = tostring(customDimensions[\"microsoft.foundry.toolbox.name\"])\n| where isnotempty(tb) and tb !startswith \"foundry-managed-harness\"\n| extend mcp = \"toolbox\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| summarize \n    success_rate = countif(success == false) * 100.0 / count()",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
@@ -833,7 +833,7 @@
               "azureLogAnalytics": {
                 "dashboardTime": true,
                 "mode": "raw",
-                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName == \"agentsv2\" \n| extend mcp = \"toolbox\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| where success == false\n| summarize error_count = count() by bin(timestamp, $__interval)",
+                "query": "let MCPNames = dynamic([$MCPName]);\nrequests\n| where cloud_RoleName == \"agentsv2\" \n| extend tb = tostring(customDimensions[\"microsoft.foundry.toolbox.name\"])\n| where isnotempty(tb) and tb !startswith \"foundry-managed-harness\"\n| extend mcp = \"toolbox\"\n| where array_length(MCPNames) > 0\n| where mcp in (MCPNames)\n| where success == false\n| summarize error_count = count() by bin(timestamp, $__interval)",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
@@ -988,7 +988,7 @@
               "azureLogAnalytics": {
                 "dashboardTime": true,
                 "mode": "raw",
-                "query": "let MCPNames = dynamic([$MCPName]);\r\nrequests\r\n| where cloud_RoleName == \"agentsv2\" and success == false\r\n| project timestamp, mcp = \"toolbox\", src = \"foundry\",\r\n          what = name,\r\n          detail = strcat(\"resultCode=\", resultCode,\r\n                          \" | error.type=\", tostring(customDimensions[\"error.type\"]),\r\n                          \" | rpc.response.status_code=\", tostring(customDimensions[\"rpc.response.status_code\"])),\r\n                          duration, TraceId=operation_Id \r\n| where array_length(MCPNames) > 0\r\n| where mcp in (MCPNames)\r\n| limit 20",
+                "query": "let MCPNames = dynamic([$MCPName]);\r\nrequests\r\n| where cloud_RoleName == \"agentsv2\" and success == false\r\n| extend tb = tostring(customDimensions[\"microsoft.foundry.toolbox.name\"])\r\n| where isnotempty(tb) and tb !startswith \"foundry-managed-harness\"\r\n| project timestamp, mcp = \"toolbox\", src = \"foundry\",\r\n          what = name,\r\n          detail = strcat(\"resultCode=\", resultCode,\r\n                          \" | error.type=\", tostring(customDimensions[\"error.type\"]),\r\n                          \" | rpc.response.status_code=\", tostring(customDimensions[\"rpc.response.status_code\"])),\r\n                          duration, TraceId=operation_Id \r\n| where array_length(MCPNames) > 0\r\n| where mcp in (MCPNames)\r\n| limit 20",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
