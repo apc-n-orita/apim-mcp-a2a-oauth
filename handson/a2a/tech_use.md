@@ -35,15 +35,17 @@ The sticky assignment is a **read-mostly** flow — the cache write happens only
 
 In other words: the **first** request from a caller computes `MD5(oid) % N` and writes the result to Redis; **every subsequent** request within 24 h finds the entry on lookup, skips the store, and goes to the same backend. That is what makes the assignment "sticky" — the caller's A2A conversation stays on one Foundry backend (conversation state is backend-local), while the deterministic hash spreads *different* callers across backends. Redis is rewritten only when a failover attempt succeeds, and only for 5 minutes (described next).
 
-**Retry and failover** (in the `<backend>` section): the retry condition is *no response / 429 / 5xx / JSON-RPC error `-32603` (Internal error)*. Errors on the Foundry agent side are all returned as `-32603`, including a 429 from the model (`Received 429 from a service request`) and a failed tool call (`Received 400 from a service request`). The detail is in `error.data[0].metadata.detail` (v1.0) or `error.message` (v0.3), so the policy does not look at the message. Client-side errors such as `-32601` / `-32602` are not retried.
+> **Note: the failover behavior described below is the behavior of this repository's `tartaria-agent`.** How a failure is returned [may differ depending on the agent's configuration](../../memo/a2a_sync_async_failover_experiment_memo.md). Test how each agent returns errors, and then, based on the result, either modify the failover configuration or disable the failover.
 
-The policy makes **one retry, without waiting**: if attempt 1 (the assigned backend) fails, attempt 2 goes to a deterministically chosen different backend. If attempt 2 **succeeds**, the Redis sticky assignment is rewritten to the failover target for **5 minutes**, so the follow-up polling for a task created there goes to the same backend. A failed failover attempt (for example, `GetTask` for a nonexistent task) does not rewrite Redis. After 5 minutes the key expires and the next request recomputes `MD5(oid) % N`, returning to the original backend.
+**Retry and failover** (in the `<backend>` section): the retry condition is *no response / 429 / 5xx / JSON-RPC error `-32603` (internal server error) / `-32099`*. `-32603` is the JSON-RPC counterpart of an HTTP 5xx error. Foundry also returns it for some errors caused by the client, such as a `GetTask` on a nonexistent task (`Received 400 from a service request`), and those are retried as well. `-32099` is a Foundry-specific code returned when the agent run fails, for example a rate limit of the model (`The downstream request was rate limited.`) or a failed tool call (`The tool request could not be completed. Check the tool configuration and input.`). The policy does not look at the message to decide whether to retry. Client-side errors such as `-32601` / `-32602` are not retried.
+
+The policy makes **one retry, without waiting**: if attempt 1 (the assigned backend) fails, attempt 2 goes to a deterministically chosen different backend. If attempt 2 **succeeds**, the Redis sticky assignment is rewritten to the failover target for **5 minutes**, so the follow-up polling for a task created there goes to the same backend. A failed failover attempt (for example, a failed tool execution) does not rewrite Redis. After 5 minutes the key expires and the next request recomputes `MD5(oid) % N`, returning to the original backend.
 
 #### Why failover works only for synchronous calls
 
 Failover is triggered by the response of the request the policy is handling. Whether that response already contains the failure depends on whether the call waits for the task to finish.
 
-**Synchronous call** (v1.0 `SendMessage` by default, or v0.3 `message/send` with `configuration.blocking: true`): Foundry returns the response **after the task has finished, whether it succeeded or failed**. A failure therefore arrives in the same HTTP 200 response as a JSON-RPC error (`-32603`), the retry condition matches, and the policy re-sends the same request to another backend.
+**Synchronous call** (v1.0 `SendMessage` by default, or v0.3 `message/send` with `configuration.blocking: true`): Foundry returns the response **after the task has finished, whether it succeeded or failed**. A failure therefore arrives in the same HTTP 200 response as a JSON-RPC error (`-32603` or `-32099`), the retry condition matches, and the policy re-sends the same request to another backend.
 
 ```mermaid
 sequenceDiagram
@@ -54,7 +56,7 @@ sequenceDiagram
     C->>A: SendMessage (waits for completion)
     A->>F1: forward
     F1->>F1: agent run fails (429)
-    F1-->>A: 200 + JSON-RPC error -32603
+    F1-->>A: 200 + JSON-RPC error -32099
     Note over A: retry condition matches
     A->>F2: same request (failover)
     F2-->>A: 200 completed task
@@ -86,10 +88,10 @@ Failing over this case would need more than a policy condition: the policy would
 
 | Call | Mode | How a failure is returned | Failover |
 |---|---|---|---|
-| v1.0 `SendMessage` (no `configuration`) | **Synchronous — the v1.0 default** (waits for completion) | JSON-RPC `-32603` | Yes |
+| v1.0 `SendMessage` (no `configuration`) | **Synchronous — the v1.0 default** (waits for completion) | JSON-RPC `-32603` / `-32099` | Yes |
 | v1.0 `SendMessage` with `returnImmediately: true` | Asynchronous (opt-in) | `submitted` now, `failed` task later (no error, no reason) | No |
 | v0.3 `message/send` (no `blocking`) | **Asynchronous — the v0.3 default** (returns right away) | `submitted` now, `failed` task later (no error, no reason) | No |
-| v0.3 `message/send` with `configuration.blocking: true` | Synchronous (opt-in) | JSON-RPC `-32603` | Yes |
+| v0.3 `message/send` with `configuration.blocking: true` | Synchronous (opt-in) | JSON-RPC `-32603` / `-32099` | Yes |
 
 The default is the opposite in the two versions: v1.0 waits for the task to finish unless the caller asks to return immediately, while v0.3 returns immediately unless the caller asks to block.
 
@@ -163,14 +165,17 @@ This is the same class of tradeoff already noted for [PIM for Groups](#productio
 
 ### JSON-RPC Error Telemetry to Application Insights
 
-Foundry's incoming A2A endpoint is a layer in front of the agent: it accepts the A2A (JSON-RPC) request and hands it to the agent (incoming A2A requires the Responses protocol). Failures can be raised in this layer, and they are not always visible on the Foundry agent side. In our tests an agent run failure (`rate_limit_exceeded`) appeared as an `invoke_agent` trace in Application Insights, but a request rejected by the endpoint, such as an unknown method (`-32601`), left no agent trace. Either way, the caller gets the failure back as a JSON-RPC error: **HTTP 200**, with the failure expressed only inside the body (`{"error": {"code": ..., "message": ...}}`). That is why the policy logs these errors itself, and it also creates a blind spot in standard APIM telemetry:
+Foundry's incoming A2A endpoint accepts the JSON-RPC request, converts it to the Responses protocol, and hands it to the agent (incoming A2A requires the Responses protocol). A failure is returned as a JSON-RPC error with **HTTP 200**. The policy records these errors in Application Insights for two reasons:
 
-- In the APIM request logs, these calls are recorded as **successful (200) requests** — indistinguishable from healthy traffic.
-- The API diagnostics are configured in Terraform ([a2a-agent.tf](../../infra/modules/gateway/apim-api/a2a-agent/a2a-agent.tf), `azurerm_api_management_api_diagnostic.a2a_api`) with `always_log_errors = true` and a configurable `sampling_percentage`. `alwaysLog: allErrors` is officially defined as *"Always log all **erroneous** request regardless of sampling settings"* ([Diagnostic REST reference](https://learn.microsoft.com/rest/api/apimanagement/diagnostic/create-or-update#alwayslog)) — i.e., HTTP errors are exempt from sampling and always recorded even when the sampling percentage is lowered. However, an HTTP 200 JSON-RPC failure is **not classified as an erroneous request**, so it remains subject to sampling and never surfaces as a failure signal.
+- If an error is returned during the conversion to the Responses protocol, the request may never reach the agent, so no log is left on the Foundry agent side.
+- We want to observe the JSON-RPC errors that the A2A endpoint of a Foundry agent returns.
 
-To close this gap, the product policy parses the response body into a `JObject` **once per attempt** (`preserveContent: true`, so the client still receives the original body) and caches the result in a `jsonRpcBody` variable — `error.code` and `error.message` are then read from that cached object via `SelectToken`, instead of re-parsing the body once per field. When `error.message` is present, the policy pushes an exception **directly to the Application Insights `exceptions` table** via the ingestion API (`{{app-insights-ingestion-endpoint}}/v2.1/track`), authenticated with the APIM managed identity (Entra ID token for `https://monitor.azure.com`):
+Without this, the errors are a blind spot in standard APIM telemetry:
 
-> **Why a full-body `As<JObject>()` parse is safe here.** This only works because Foundry's incoming A2A endpoint does not support streaming: *"Streaming responses (server-sent events) aren't supported"* ([A2A limitations](https://learn.microsoft.com/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint#limitations)). Every A2A response is therefore a single, complete JSON-RPC message that has fully arrived by the time this policy runs — there's no partial SSE chunk to account for. As of October 2026, there isn't even a setting to turn streaming on: `GET {endpoint}/agents/{agent_name}?api-version=v1` shows `agent_endpoint.protocol_configuration.a2a` as an empty object, and the agent card's `capabilities.streaming` is hardcoded to `false` by Foundry itself — neither this policy nor the agent definition asks for that value. **If Foundry's A2A endpoint adds streaming support in the future** (as a new default, or as an opt-in field inside `protocol_configuration.a2a`), streaming **must be explicitly turned off** for this agent's A2A endpoint before that happens — otherwise a streamed response can't be parsed as one complete JSON object by `As<JObject>()`, silently breaking the JSON-RPC error detection and retry/failover logic in this policy.
+- APIM request logs record these calls as **successful (200) requests**, indistinguishable from healthy traffic.
+- The API diagnostics ([a2a-agent.tf](../../infra/modules/gateway/apim-api/a2a-agent/a2a-agent.tf), `azurerm_api_management_api_diagnostic.a2a_api`) set `always_log_errors = true`, but `alwaysLog: allErrors` covers only **erroneous** requests ([Diagnostic REST reference](https://learn.microsoft.com/rest/api/apimanagement/diagnostic/create-or-update#alwayslog)). An HTTP 200 JSON-RPC failure is not one, so it stays subject to sampling.
+
+To close this gap, the product policy parses the response body into a `JObject` once per attempt (`preserveContent: true`, so the client still receives the original body) and reads `error.code` and the message from it (`error.data[0].metadata` if present, otherwise `error.message`). When there is a message, the policy pushes an exception **directly to the Application Insights `exceptions` table** via the ingestion API (`{{app-insights-ingestion-endpoint}}/v2.1/track`), authenticated with the APIM managed identity (Entra ID token for `https://monitor.azure.com`):
 
 ```xml
 <send-one-way-request>
@@ -183,7 +188,9 @@ To close this gap, the product policy parses the response body into a `JObject` 
 </send-one-way-request>
 ```
 
-The exception is recorded as type `JsonRpcError` with `agentName`, `backend`, `attempt`, `errorCode`, and `errorMessage` properties, so backend-level A2A failures are queryable and alertable even though every HTTP status was 200. [`send-one-way-request`](https://learn.microsoft.com/azure/api-management/send-one-way-request-policy) *"sends the provided request to the specified URL without waiting for a response"* — fire-and-forget, so telemetry adds no latency to the client response (the tradeoff, per the docs, is that a failed telemetry send is not reported). The same body inspection also feeds the retry condition, which is why JSON-RPC failures trigger retry/failover as well.
+The exception is recorded as type `JsonRpcError` with `agentName`, `backend`, `attempt`, `errorCode`, and `errorMessage` properties, so backend-level failures are queryable and alertable. [`send-one-way-request`](https://learn.microsoft.com/azure/api-management/send-one-way-request-policy) is fire-and-forget, so telemetry adds no latency to the client response (a failed telemetry send is not reported). The same body inspection also feeds the retry condition.
+
+> **Why parsing the full body is safe.** Foundry's incoming A2A endpoint does not support streaming (*"Streaming responses (server-sent events) aren't supported"*, [A2A limitations](https://learn.microsoft.com/azure/foundry/agents/how-to/enable-agent-to-agent-endpoint#limitations)), so every response is one complete JSON-RPC message. As of October 2026 there is no setting to turn streaming on (the agent card's `capabilities.streaming` is `false`). **If streaming support is added in the future, turn it off explicitly for this agent's A2A endpoint**; otherwise `As<JObject>()` fails on a streamed response and silently breaks the error detection and the retry/failover logic.
 
 > **Prerequisite**: the APIM managed identity must hold **Monitoring Metrics Publisher** on the Application Insights resource.
 

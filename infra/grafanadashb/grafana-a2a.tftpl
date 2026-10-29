@@ -669,7 +669,7 @@
               "azureLogAnalytics": {
                 "dashboardTime": true,
                 "mode": "raw",
-                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"])\n| where op_name == \"chat\"\n| extend in_tok = toint(customDimensions[\"gen_ai.usage.input_tokens\"]),\n         cache_tok = toint(customDimensions[\"gen_ai.usage.cache_read.input_tokens\"])\n| summarize cache_hit_pct = round(sum(cache_tok) * 100.0 / sum(in_tok), 1)",
+                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"])\n| where op_name == \"chat\"\n| where tostring(customDimensions[\"gen_ai.agent.name\"]) !startswith \"github-copilot-\"\n| extend in_tok = toint(customDimensions[\"gen_ai.usage.input_tokens\"]),\n         cache_tok = toint(customDimensions[\"gen_ai.usage.cache_read.input_tokens\"])\n| summarize cache_hit_pct = round(sum(cache_tok) * 100.0 / sum(in_tok), 1)",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
@@ -757,7 +757,7 @@
               "azureLogAnalytics": {
                 "dashboardTime": true,
                 "mode": "raw",
-                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"])\n| where op_name == \"chat\"\n| extend cache_tok = toint(customDimensions[\"gen_ai.usage.cache_read.input_tokens\"])\n| summarize ['Tokens From Cache'] = sum(cache_tok)",
+                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"])\n| where op_name == \"chat\"\n| where tostring(customDimensions[\"gen_ai.agent.name\"]) !startswith \"github-copilot-\"\n| extend cache_tok = toint(customDimensions[\"gen_ai.usage.cache_read.input_tokens\"])\n| summarize ['Tokens From Cache'] = sum(cache_tok)",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
@@ -851,7 +851,7 @@
               "azureLogAnalytics": {
                 "dashboardTime": true,
                 "mode": "raw",
-                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"]),\n         finish = tostring(customDimensions[\"gen_ai.response.finish_reasons\"])\n| where op_name == \"chat\"\n| where isnotempty(finish)\n| summarize call_count = count() by finish",
+                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"]),\n         finish = tostring(customDimensions[\"gen_ai.response.finish_reasons\"])\n| where op_name == \"chat\"\n| where tostring(customDimensions[\"gen_ai.agent.name\"]) !startswith \"github-copilot-\"\n| where isnotempty(finish)\n| summarize call_count = count() by finish",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
@@ -972,7 +972,7 @@
             {
               "azureLogAnalytics": {
                 "dashboardTime": true,
-                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"]),\n         model = tostring(customDimensions[\"gen_ai.response.model\"])\n| where op_name == \"chat\"\n| extend model = iff(isempty(model), \"(unknown)\", model)\n| summarize p95_ms = percentile(duration, 95) by bin(timestamp, $__interval), model\n| order by timestamp asc",
+                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"]),\n         model = tostring(customDimensions[\"gen_ai.response.model\"])\n| where op_name == \"chat\"\n| where tostring(customDimensions[\"gen_ai.agent.name\"]) !startswith \"github-copilot-\"\n| extend model = iff(isempty(model), \"(unknown)\", model)\n| summarize p95_ms = percentile(duration, 95) by bin(timestamp, $__interval), model\n| order by timestamp asc",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
@@ -1156,7 +1156,7 @@
             {
               "azureLogAnalytics": {
                 "dashboardTime": true,
-                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"]),\n         tool = tostring(customDimensions[\"gen_ai.tool.name\"])\n| where op_name == \"execute_tool\"\n| where isnotempty(tool)\n| summarize calls = count(),\n    success_rate = round(countif(success == \"True\") * 100.0 / count(), 1),\n    avg_duration_ms = round(avg(duration), 0),\n    p95_duration_ms = round(percentile(duration, 95), 0)\n    by tool\n| order by calls desc\n| take 30",
+                "query": "dependencies\n| extend op_name = tostring(customDimensions[\"gen_ai.operation.name\"]),\n         tool = tostring(customDimensions[\"gen_ai.tool.name\"])\n| where op_name == \"execute_tool\"\n| where tostring(customDimensions[\"gen_ai.agent.name\"]) !startswith \"github-copilot-\"\n| where isnotempty(tool)\n| summarize calls = count(),\n    success_rate = round(countif(success == \"True\") * 100.0 / count(), 1),\n    avg_duration_ms = round(avg(duration), 0),\n    p95_duration_ms = round(percentile(duration, 95), 0)\n    by tool\n| order by calls desc\n| take 30",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
@@ -1703,7 +1703,7 @@
               "azureLogAnalytics": {
                 "dashboardTime": true,
                 "mode": "raw",
-                "query": "dependencies\n| where name contains \"invoke_agent\"\n| extend agent_name = tostring(customDimensions[\"gen_ai.agent.name\"])\n| where isnotempty(agent_name)\n| summarize\n    operations = count(),\n    avg_duration = round(avg(duration) / 1000, 2),\n    success_rate = round(countif(success == \"True\") * 100.0 / count(), 2)\n    by agent_name\n| order by operations desc",
+                "query": "dependencies\n| where name contains \"invoke_agent\"\n| extend agent_name = tostring(customDimensions[\"gen_ai.agent.name\"])\n| where isnotempty(agent_name)\n| where agent_name !startswith \"github-copilot-\"\n| summarize\n    operations = count(),\n    avg_duration = round(avg(duration) / 1000, 2),\n    success_rate = round(countif(success == \"True\") * 100.0 / count(), 2)\n    by agent_name\n| order by operations desc",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
@@ -2991,6 +2991,509 @@
       ],
       "title": "Foundry Guardrail",
       "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "id": 39,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Number of JSON-RPC errors recorded by the APIM policy (HTTP 200 responses whose body has an error). Excludes internal JsonRpcError exceptions of other components.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "fixedColor": "red",
+                "mode": "fixed"
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 4,
+            "x": 0,
+            "y": 15
+          },
+          "id": 40,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "value_and_name",
+            "wideLayout": true
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let agentNames = dynamic([$agentName]);\nexceptions\n| where type == \"JsonRpcError\" and isnotempty(customDimensions[\"attempt\"])\n| extend agent_name = tostring(customDimensions[\"agentName\"]),\n         errorCode    = tostring(customDimensions[\"errorCode\"]),\n         backend      = tostring(parse_url(tostring(customDimensions[\"backend\"])).Host),\n         attempt      = tostring(customDimensions[\"attempt\"]),\n         errorMessage = tostring(customDimensions[\"errorMessage\"])\n| where array_length(agentNames) > 0\n| where agent_name in (agentNames)\n| summarize errors = count()",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "table",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "JSON-RPC Errors",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "JSON-RPC error count over time, split by error code (for example -32603 internal server error and -32099 Foundry-specific errors).",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Errors",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 1,
+                "drawStyle": "bars",
+                "fillOpacity": 100,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "normal"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 10,
+            "x": 4,
+            "y": 15
+          },
+          "id": 41,
+          "interval": "1h",
+          "maxDataPoints": 150,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let agentNames = dynamic([$agentName]);\nexceptions\n| where type == \"JsonRpcError\" and isnotempty(customDimensions[\"attempt\"])\n| extend agent_name = tostring(customDimensions[\"agentName\"]),\n         errorCode    = tostring(customDimensions[\"errorCode\"]),\n         backend      = tostring(parse_url(tostring(customDimensions[\"backend\"])).Host),\n         attempt      = tostring(customDimensions[\"attempt\"]),\n         errorMessage = tostring(customDimensions[\"errorMessage\"])\n| where array_length(agentNames) > 0\n| where agent_name in (agentNames)\n| summarize error_count = count() by bin(timestamp, $__interval), errorCode",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "time_series",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "JSON-RPC Errors Over Time (by Code)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "Errors per backend. first_attempt = failed on the assigned backend, failover_also_failed = the retry on the other backend failed too. The difference is a rough count of failovers that succeeded.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Errors",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 1,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 10,
+            "x": 14,
+            "y": 15
+          },
+          "id": 42,
+          "options": {
+            "barRadius": 0,
+            "barWidth": 0.97,
+            "fullHighlight": false,
+            "groupWidth": 0.7,
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "orientation": "auto",
+            "showValue": "auto",
+            "stacking": "none",
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            },
+            "xTickLabelRotation": 0,
+            "xTickLabelSpacing": 0
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "mode": "raw",
+                "query": "let agentNames = dynamic([$agentName]);\nexceptions\n| where type == \"JsonRpcError\" and isnotempty(customDimensions[\"attempt\"])\n| extend agent_name = tostring(customDimensions[\"agentName\"]),\n         errorCode    = tostring(customDimensions[\"errorCode\"]),\n         backend      = tostring(parse_url(tostring(customDimensions[\"backend\"])).Host),\n         attempt      = tostring(customDimensions[\"attempt\"]),\n         errorMessage = tostring(customDimensions[\"errorMessage\"])\n| where array_length(agentNames) > 0\n| where agent_name in (agentNames)\n| summarize first_attempt = countif(attempt == \"1\"), failover_also_failed = countif(attempt == \"2\") by backend",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "table",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "JSON-RPC Errors by Backend and Attempt",
+          "type": "barchart"
+        },
+        {
+          "datasource": {
+            "type": "grafana-azure-monitor-datasource",
+            "uid": "$${am_ds}"
+          },
+          "description": "The 20 most recent JSON-RPC errors recorded by the APIM policy: attempt 1 is the assigned backend, attempt 2 is the failover target.",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "links": [],
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "timestamp"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Time"
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 180
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "agent_name"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Agent"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "errorCode"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Code"
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 90
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "backend"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Backend"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "attempt"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Attempt"
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 90
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "errorMessage"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Message"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": []
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 21
+          },
+          "id": 43,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Time"
+              }
+            ]
+          },
+          "pluginVersion": "13.2.0",
+          "targets": [
+            {
+              "azureLogAnalytics": {
+                "dashboardTime": true,
+                "query": "let agentNames = dynamic([$agentName]);\nexceptions\n| where type == \"JsonRpcError\" and isnotempty(customDimensions[\"attempt\"])\n| extend agent_name = tostring(customDimensions[\"agentName\"]),\n         errorCode    = tostring(customDimensions[\"errorCode\"]),\n         backend      = tostring(parse_url(tostring(customDimensions[\"backend\"])).Host),\n         attempt      = tostring(customDimensions[\"attempt\"]),\n         errorMessage = tostring(customDimensions[\"errorMessage\"])\n| where array_length(agentNames) > 0\n| where agent_name in (agentNames)\n| project timestamp, agent_name, errorCode, backend, attempt, errorMessage\n| order by timestamp desc\n| limit 20",
+                "resources": [
+                  "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
+                ],
+                "resultFormat": "logs",
+                "timeColumn": "timestamp"
+              },
+              "datasource": {
+                "type": "grafana-azure-monitor-datasource",
+                "uid": "$${am_ds}"
+              },
+              "queryType": "Azure Log Analytics",
+              "refId": "A"
+            }
+          ],
+          "title": "Recent JSON-RPC Errors",
+          "type": "table"
+        }
+      ],
+      "title": "JSON-RPC Errors (APIM)",
+      "type": "row"
     }
   ],
   "preload": false,
@@ -3150,7 +3653,7 @@
         "query": {
           "azureLogAnalytics": {
             "dashboardTime": true,
-            "query": "dependencies \r\n| where name contains \"invoke_agent\"\r\n| extend agent_name = tostring(customDimensions[\"gen_ai.agent.name\"])\r\n| where isnotempty(agent_name)\r\n| summarize operationCount=count() by agent_name\r\n| sort by operationCount desc\r\n| project agent_name",
+            "query": "dependencies \r\n| where name contains \"invoke_agent\"\r\n| extend agent_name = tostring(customDimensions[\"gen_ai.agent.name\"])\r\n| where isnotempty(agent_name)\r\n| where agent_name !startswith \"github-copilot-\"\r\n| summarize operationCount=count() by agent_name\r\n| sort by operationCount desc\r\n| project agent_name",
             "resources": [
               "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
             ],
