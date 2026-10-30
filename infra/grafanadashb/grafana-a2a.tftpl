@@ -3191,7 +3191,7 @@
               "azureLogAnalytics": {
                 "dashboardTime": true,
                 "mode": "raw",
-                "query": "let agentNames = dynamic([$agentName]);\nexceptions\n| where type == \"JsonRpcError\" and isnotempty(customDimensions[\"attempt\"])\n| extend agent_name = tostring(customDimensions[\"agentName\"]),\n         errorCode    = tostring(customDimensions[\"errorCode\"]),\n         backend      = tostring(parse_url(tostring(customDimensions[\"backend\"])).Host),\n         attempt      = tostring(customDimensions[\"attempt\"]),\n         errorMessage = tostring(customDimensions[\"errorMessage\"])\n| where array_length(agentNames) > 0\n| where agent_name in (agentNames)\n| summarize error_count = count() by bin(timestamp, $__interval), errorCode",
+                "query": "let agentNames = dynamic([$agentName]);\nexceptions\n| where type == \"JsonRpcError\" and isnotempty(customDimensions[\"attempt\"])\n| extend agent_name = tostring(customDimensions[\"agentName\"]),\n         errorCode    = tostring(customDimensions[\"errorCode\"]),\n         backend      = tostring(parse_url(tostring(customDimensions[\"backend\"])).Host),\n         attempt      = tostring(customDimensions[\"attempt\"]),\n         errorMessage = tostring(customDimensions[\"errorMessage\"])\n| where array_length(agentNames) > 0\n| where agent_name in (agentNames)\n| summarize error_count = count() by bin(timestamp, $__interval), errorCode\n| order by timestamp asc",
                 "resources": [
                   "/subscriptions/$sub/resourceGroups/$rg/providers/microsoft.insights/components/$res"
                 ],
