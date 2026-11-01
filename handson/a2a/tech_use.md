@@ -35,13 +35,15 @@ The sticky assignment is a **read-mostly** flow — the cache write happens only
 
 In other words: the **first** request from a caller computes `MD5(oid) % N` and writes the result to Redis; **every subsequent** request within 24 h finds the entry on lookup, skips the store, and goes to the same backend. That is what makes the assignment "sticky" — the caller's A2A conversation stays on one Foundry backend (conversation state is backend-local), while the deterministic hash spreads *different* callers across backends. Redis is rewritten only when a failover attempt succeeds, and only for 5 minutes (described next).
 
-> **Note: the failover behavior described below is the behavior of this repository's `tartaria-agent`.** How a failure is returned [may differ depending on the agent's configuration](../../memo/a2a_sync_async_failover_experiment_memo.md). Test how each agent returns errors, and then, based on the result, either modify the failover configuration or disable the failover.
+> **Note: the failover below depends on how Foundry returns an agent-run failure, which may be Foundry-specific behavior.** For this repository's `tartaria-agent`, a synchronous failure comes back as a JSON-RPC error. The A2A specification does not require this (see [Is this consistent with the A2A specification?](#is-this-consistent-with-the-a2a-specification)), and how a failure is returned [may differ depending on the agent's configuration](../../memo/a2a_sync_async_failover_experiment_memo.md). Test how each agent returns errors, and then, based on the result, either modify the failover configuration or disable the failover.
 
 **Retry and failover** (in the `<backend>` section): the retry condition is *no response / 429 / 5xx / JSON-RPC error `-32603` (internal server error) / `-32099`*. `-32603` is the JSON-RPC counterpart of an HTTP 5xx error. Foundry also returns it for some errors caused by the client, such as a `GetTask` on a nonexistent task (`Received 400 from a service request`), and those are retried as well. `-32099` is a Foundry-specific code returned when the agent run fails, for example a rate limit of the model (`The downstream request was rate limited.`) or a failed tool call (`The tool request could not be completed. Check the tool configuration and input.`). The policy does not look at the message to decide whether to retry. Client-side errors such as `-32601` / `-32602` are not retried.
 
 The policy makes **one retry, without waiting**: if attempt 1 (the assigned backend) fails, attempt 2 goes to a deterministically chosen different backend. If attempt 2 **succeeds**, the Redis sticky assignment is rewritten to the failover target for **5 minutes**, so the follow-up polling for a task created there goes to the same backend. A failed failover attempt (for example, a failed tool execution) does not rewrite Redis. After 5 minutes the key expires and the next request recomputes `MD5(oid) % N`, returning to the original backend.
 
 #### Why failover works only for synchronous calls
+
+This section describes how Foundry's prompt agent behaves; see the note above.
 
 Failover is triggered by the response of the request the policy is handling. Whether that response already contains the failure depends on whether the call waits for the task to finish.
 
@@ -84,7 +86,7 @@ sequenceDiagram
     Note over A: still HTTP 200, no JSON-RPC error, no reason
 ```
 
-Failing over this case would need more than a policy condition: the policy would have to keep the original message, re-run it on another backend, and map the new task ID to the one the client already holds (a task exists only on the backend that created it). This is not implemented, so **asynchronous calls are not failed over**. Buffering the response body is not the obstacle; the failure simply does not exist yet when the response is returned.
+Failing over this case would need more than a policy condition: the policy would have to keep the original message, re-run it on another backend, and map the new task ID to the one the client already holds (a task exists only on the backend that created it). This is not implemented, so **asynchronous calls are excluded from failover**.
 
 | Call | Mode | How a failure is returned | Failover |
 |---|---|---|---|
@@ -96,6 +98,19 @@ Failing over this case would need more than a policy condition: the policy would
 The default is the opposite in the two versions: v1.0 waits for the task to finish unless the caller asks to return immediately, while v0.3 returns immediately unless the caller asks to block.
 
 The `samplecodes/a2a-agent.py` sample is synchronous: when the agent card is v0.3, the A2A Python SDK converts the request to `message/send` and sets `blocking: true` (`return_immediately` defaults to `false`).
+
+#### Is this consistent with the A2A specification?
+
+The A2A specification separates two layers of failure:
+
+- **Protocol / RPC layer** (a JSON-RPC error): the request could not be processed — an invalid request, a nonexistent task, an unsupported method, an authentication or transport failure.
+- **Task layer** (`TASK_STATE_FAILED`): the request was accepted and the task ran, but the agent's work failed — an inference failure, a failed tool call, an unreachable goal.
+
+Seen through this separation, the policy's design is sound: it fails over on JSON-RPC errors and limits them to the codes that point at the agent or the backend (no response, 429, 5xx, `-32603`, `-32099`), and it does not retry request-side codes such as `-32601` / `-32602`, which would fail the same way on any backend.
+
+What is not guaranteed by the specification is the premise. By the specification, an agent-run failure belongs to the task layer, so an agent that follows it returns a `failed` task even for a synchronous call. The policy cannot detect that, just as it cannot for asynchronous calls. Returning an agent-run failure as a JSON-RPC error is how Foundry's prompt agent behaves — for example, a failed tool call comes back as `-32099` (a code the specification does not define) with `reason: TOOL_USER_ERROR`.
+
+In short, failover on JSON-RPC errors is consistent with the specification's error layers, but how much it covers depends on how each agent returns a failure.
 
 **External cache**: [`cache-lookup-value`](https://learn.microsoft.com/azure/api-management/cache-lookup-value-policy) / [`cache-store-value`](https://learn.microsoft.com/azure/api-management/cache-store-value-policy) with `caching-type="external"` require an [external Redis-compatible cache](https://learn.microsoft.com/azure/api-management/api-management-howto-cache-external) registered on APIM. The Terraform configuration is in [infra/main.tf](../../infra/main.tf) (`azurerm_managed_redis.a2a_cache` and `azurerm_api_management_redis_cache.a2a_external_cache`):
 
