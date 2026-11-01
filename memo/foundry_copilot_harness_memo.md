@@ -160,7 +160,10 @@
 - スキルを付けたエージェントの1回の実行で、モデル呼び出し (`chat`) の間に、`execute_tool skill` (スキルの読み込み)、`execute_tool …knowledge_base_retrieve` (MCP ツール) が順番に実行された。スキルの指示どおり、ツールが呼ばれた。
 - ハーネスのファイル読み取りツール (`view`) が、失敗することがあった (理由は未確認)。
 - 起動時に、`Managed Toolbox manifest could not be primed; continuing with Copilot-only priming` (Warning、Toolbox を使っていない場合も出る)、`Hook handler failed` (RuntimeError) などが `exceptions` に記録された。これらの `type` が `JsonRpcError` になるものがあり、他の用途の同名の例外 (KQL の絞り込み) と混ざる点に注意。
-- レート制限の間、ハーネス内で、モデル呼び出しが約1秒ごとに 500 で失敗して再試行され、30〜45秒ほどで諦めて `failed` になるように見えた (別構成のエージェントで確認)。
+- **スパンの構造**: Foundry のリクエスト (ロール `agentsv2`) の下に、ハーネスのランタイム (ロール `github-copilot`) の `invoke_agent` (エージェント名で記録) があり、その下に `chat` と `execute_tool` が並ぶ。
+- **Foundry 側の別名**: Foundry (Responses API、ロール `responsesapi`) の `invoke_agent` は、エージェント名ではなく、`github-copilot-preview-<GUID>:<バージョン>` という内部の識別子で記録される (通常のエージェントは `<エージェント名>:<バージョン>`)。GUID は、呼び出しごとではなく、エージェントごとに固定。ダッシュボードで、エージェント名別に集計すると、別のエージェントとして数えられる。
+- **サブエージェント**: ハーネスの実行 12 回のうち 1 回で、`execute_tool task` の下に、`invoke_agent general-purpose` (サブエージェント) が入れ子になって動いた。`subagents` ツールは既定で有効。
+- **レート制限のとき**: ハーネスの `chat` スパンの内側で、モデル呼び出しを 5 回再試行し (待ち時間は合計約31〜34秒)、失敗する。理由 (`Model deployment rate limit exceeded`) は、`gen_ai.client.operation.exception` のトレースに残るが、A2A の応答には付かない。ハーネスの `invoke_agent` は `success = false`、外側の Foundry のリクエストは `success = true`。詳細は `a2a_sync_async_failover_experiment_memo.md` の 4.6 と 5.1。
 
 ## 8. 参考
 
